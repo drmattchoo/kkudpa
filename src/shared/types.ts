@@ -76,6 +76,8 @@ export interface IngestedFile {
   documents: ExtractedDocument[] | null;
   extractionModel?: string;
   extractionError?: string;
+  /** What each read attempt did, for diagnosis */
+  extractionLog?: string;
 }
 
 /** One document inside a file. The rules engine works on these. */

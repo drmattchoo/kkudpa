@@ -206,8 +206,10 @@ async function extractOne(f: IngestedFile) {
     const r = await extract({ name: f.name, pages }, S.settings);
     f.documents = r.docs;
     f.extractionModel = r.model;
+    f.extractionLog = r.attempts.map((a) => `${a.model}: ${a.outcome}`).join('\n');
   } catch (e) {
     f.extractionError = (e as Error).message;
+    f.extractionLog = (e as { details?: string }).details ?? '';
   } finally {
     S.extracting.delete(f.id);
     render();
@@ -289,6 +291,7 @@ function viewFiles(): Child[] {
             ? h('div', { class: 'muted small' }, 'Reading…')
             : h('button', { class: 'secondary', onclick: () => extractOne(f) }, 'Read'),
         f.extractionError && h('div', { class: 'flag block' }, f.extractionError),
+        f.extractionLog && h('details', { open: !!f.extractionError }, h('summary', { class: 'small muted' }, 'How it was read'), h('pre', { class: 'log' }, f.extractionLog)),
       ),
     ),
   ];

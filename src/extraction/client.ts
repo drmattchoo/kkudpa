@@ -66,20 +66,80 @@ export function buildRequest(input: ExtractionInput, model: string, opts: { form
   return body;
 }
 
+/** Fixes common JSON slips: trailing commas, raw line breaks inside strings. */
+export function repairJson(t: string): string {
+  let out = '';
+  let inStr = false;
+  let esc = false;
+  for (const ch of t) {
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      else if (ch === '\n') { out += '\\n'; continue; }
+      else if (ch === '\r') continue;
+      else if (ch === '\t') { out += '\\t'; continue; }
+    } else if (ch === '"') inStr = true;
+    out += ch;
+  }
+  return out.replace(/,\s*([}\]])/g, '$1');
+}
+
 /** Pulls the JSON object out of a reply that may carry code fences or prose. */
 export function parseJsonReply(text: string): unknown {
   const t = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  try {
-    return JSON.parse(t);
-  } catch {
-    const a = t.indexOf('{');
-    const b = t.lastIndexOf('}');
-    if (a >= 0 && b > a) return JSON.parse(t.slice(a, b + 1));
-    throw new Error('The reply was not JSON');
+  const a = t.indexOf('{');
+  const b = t.lastIndexOf('}');
+  const candidates = [t, a >= 0 && b > a ? t.slice(a, b + 1) : null].filter((x): x is string => !!x);
+  let first: Error | null = null;
+  for (const c of candidates) {
+    for (const v of [c, repairJson(c)]) {
+      try {
+        return JSON.parse(v);
+      } catch (e) {
+        first ??= e as Error;
+      }
+    }
+  }
+  const cut = looksCut(t);
+  throw new BadReplyError(cut ? `The reply was cut off after ${text.length} characters` : `The reply was not valid JSON (${first?.message ?? 'no JSON found'})`, text, cut);
+}
+
+/** An unterminated reply: more opening than closing brackets, or ends mid-value. */
+function looksCut(t: string): boolean {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (const ch of t) {
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') depth--;
+  }
+  return depth > 0 || inStr;
+}
+
+export class BadReplyError extends Error {
+  constructor(message: string, readonly reply: string, readonly cut: boolean) {
+    super(message);
   }
 }
 
-async function post(f: Fetch, s: Settings, body: unknown): Promise<string> {
+/** Thrown when every attempt failed. `details` is shown on the file card for diagnosis. */
+export class ExtractionError extends Error {
+  constructor(message: string, readonly details: string) {
+    super(message);
+  }
+}
+
+const CUT_REASONS = new Set(['length', 'max_tokens', 'max_output_tokens', 'MAX_TOKENS']);
+
+interface Reply { text: string; finish: string }
+
+async function post(f: Fetch, s: Settings, body: unknown): Promise<Reply> {
   if (!s.apiKey) throw new Error('Enter your KKU GenAI API key in Settings.');
   const res = await f(`${KKU_GATEWAY}/chat/completions`, {
     method: 'POST',
@@ -95,11 +155,11 @@ async function post(f: Fetch, s: Settings, body: unknown): Promise<string> {
     throw new GatewayError('The gateway returned something that is not JSON', res.status, raw.slice(0, 300));
   }
   const choice = data?.choices?.[0];
-  if (choice?.finish_reason === 'length') throw new Error('The reply was cut off. Try a file with fewer pages.');
   const content = choice?.message?.content;
   const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((c: any) => c?.text ?? '').join('') : '';
-  if (!text) throw new Error('The model returned an empty reply');
-  return text;
+  const finish = String(choice?.finish_reason ?? '');
+  if (!text) throw new Error(`The model returned an empty reply${finish ? ` (finish_reason ${finish})` : ''}`);
+  return { text, finish };
 }
 
 export function describeStatus(status: number, body: string): string {
@@ -121,49 +181,133 @@ export function describeStatus(status: number, body: string): string {
 const FORMAT_REJECTED = /response_format|json_schema|json_object|structured|schema/i;
 const IMAGE_REJECTED = /image|vision|multimodal|image_url|content type|modalit/i;
 
-/** One model: steps down response format and drops images when the model rejects them. */
-async function readWithModel(f: Fetch, input: ExtractionInput, model: string, s: Settings, attempts: ExtractionResult['attempts']): Promise<ExtractedDocument[]> {
+type Log = ExtractionResult['attempts'];
+const short = (t: string) => (t.length > 160 ? `…${t.slice(-160)}` : t);
+
+/** Asks the model once to turn a broken reply into valid JSON. */
+async function repairWithModel(f: Fetch, s: Settings, model: string, broken: string): Promise<unknown> {
+  const { text } = await post(f, s, {
+    model,
+    max_tokens: 16000,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: 'You fix malformed JSON. Return the same data as one valid JSON object and nothing else. Do not add, drop or change any value.' },
+      { role: 'user', content: broken },
+    ],
+  });
+  return parseJsonReply(text);
+}
+
+/**
+ * One request for the given pages with one model. Steps down response format, drops
+ * temperature or images when the model rejects them, and repairs bad JSON.
+ * Throws BadReplyError with cut=true when the reply was cut off.
+ */
+async function readPages(f: Fetch, input: ExtractionInput, model: string, s: Settings, log: Log, state: { images: boolean; temperature: boolean; fi: number }): Promise<ExtractedDocument[]> {
   const formats: ResponseFormat[] = ['json_schema', 'json_object', 'none'];
-  let images = s.sendImages && input.pages.some((p) => p.imageDataUrl);
-  let temperature = true;
-  let fi = 0;
+  const scope = input.pages.length === 1 ? `page ${input.pages[0]!.page}` : `${input.pages.length} pages`;
   for (;;) {
-    const format = formats[fi]!;
+    const format = formats[state.fi]!;
+    let reply: Reply | null = null;
     try {
-      const text = await post(f, s, buildRequest(input, model, { format, images, temperature }));
-      const docs = validateFileReply(parseJsonReply(text));
-      if (!images && s.sendImages) for (const d of docs) d.problems.push('Read from the PDF text layer only: this model does not take page images.');
-      attempts.push({ model, outcome: `ok (${format}${images ? ', images' : ', text only'})` });
+      reply = await post(f, s, buildRequest(input, model, { format, images: state.images, temperature: state.temperature }));
+      if (CUT_REASONS.has(reply.finish)) throw new BadReplyError(`The reply was cut off (finish_reason ${reply.finish}, ${reply.text.length} characters)`, reply.text, true);
+      let parsed: unknown;
+      try {
+        parsed = parseJsonReply(reply.text);
+      } catch (e) {
+        if ((e as BadReplyError).cut) throw e;
+        log.push({ model, outcome: `${scope}: ${(e as Error).message}; asking the model to fix it. Reply ended: ${short(reply.text)}` });
+        parsed = await repairWithModel(f, s, model, reply.text);
+      }
+      const docs = validateFileReply(parsed);
+      log.push({ model, outcome: `${scope}: ok (${format}, ${state.images ? 'images' : 'text only'}, finish ${reply.finish || '—'})` });
       return docs;
     } catch (e) {
-      const err = e as Error;
       const status = e instanceof GatewayError ? e.status : 0;
       const body = e instanceof GatewayError ? e.body : '';
+      if (e instanceof BadReplyError && e.cut) {
+        log.push({ model, outcome: `${scope}: ${e.message}. Reply ended: ${short(e.reply)}` });
+        throw e;
+      }
       if (status === 400 || status === 422) {
-        if (temperature && /temperature/i.test(body)) {
-          temperature = false;
+        if (state.temperature && /temperature/i.test(body)) {
+          state.temperature = false;
           continue;
         }
-        if (images && IMAGE_REJECTED.test(body) && !FORMAT_REJECTED.test(body)) {
-          images = false;
-          attempts.push({ model, outcome: 'model does not take images; retrying with the text layer' });
+        if (state.images && IMAGE_REJECTED.test(body) && !FORMAT_REJECTED.test(body)) {
+          state.images = false;
+          log.push({ model, outcome: 'model does not take images; retrying with the text layer' });
           continue;
         }
-        if (fi < formats.length - 1) {
-          fi++;
-          attempts.push({ model, outcome: `${format} not supported; retrying` });
+        if (state.fi < formats.length - 1) {
+          state.fi++;
+          log.push({ model, outcome: `${format} not supported (${short(body)}); retrying` });
           continue;
         }
       }
-      // Valid HTTP reply but unusable JSON: plain text mode may still help.
-      if (!status && /JSON|documents|doc_type/.test(err.message) && fi < formats.length - 1) {
-        fi++;
-        attempts.push({ model, outcome: `${err.message}; retrying` });
+      if (!status && state.fi < formats.length - 1 && !(e instanceof GatewayError)) {
+        log.push({ model, outcome: `${scope}: ${(e as Error).message}; retrying with ${formats[state.fi + 1]}` });
+        state.fi++;
         continue;
       }
-      throw err;
+      log.push({ model, outcome: `${scope}: failed: ${(e as Error).message}` });
+      throw e;
     }
   }
+}
+
+/**
+ * Joins documents read page by page: a page that continues the previous document
+ * (same type, same or no receipt number) is merged into it.
+ */
+export function mergePageDocs(docs: ExtractedDocument[]): ExtractedDocument[] {
+  const out: ExtractedDocument[] = [];
+  for (const d of docs) {
+    const prev = out.at(-1);
+    const continues =
+      prev &&
+      prev.doc_type === d.doc_type &&
+      d.doc_type !== 'boarding_pass' &&
+      (!d.receipt_no || !prev.receipt_no || d.receipt_no === prev.receipt_no) &&
+      (!d.issuer_name || !prev.issuer_name || d.issuer_name === prev.issuer_name);
+    if (!continues) {
+      out.push({ ...d, pages: [...d.pages], line_items: [...d.line_items], evidence: [...d.evidence], problems: [...d.problems] });
+      continue;
+    }
+    const pick = <K extends keyof ExtractedDocument>(k: K) => (d[k] ?? prev[k]) as ExtractedDocument[K];
+    for (const k of ['issuer_tax_id', 'billed_to_name', 'billed_to_tax_id', 'receipt_no', 'receipt_date', 'total_amount', 'vat_amount', 'passenger_or_guest_name', 'flight', 'stay', 'handwritten_notes'] as const) {
+      (prev as any)[k] = pick(k);
+    }
+    prev.pages = [...new Set([...prev.pages, ...d.pages])];
+    prev.line_items.push(...d.line_items);
+    prev.evidence.push(...d.evidence);
+    prev.problems.push(...d.problems);
+    if (d.confidence === 'low' || (d.confidence === 'medium' && prev.confidence === 'high')) prev.confidence = d.confidence;
+  }
+  return out;
+}
+
+/** One model: the whole file in one request; page by page if the reply is cut off. */
+async function readWithModel(f: Fetch, input: ExtractionInput, model: string, s: Settings, log: Log): Promise<ExtractedDocument[]> {
+  const state = { images: s.sendImages && input.pages.some((p) => p.imageDataUrl), temperature: true, fi: 0 };
+  const note = (docs: ExtractedDocument[]) => {
+    if (!state.images && s.sendImages) for (const d of docs) d.problems.push('Read from the PDF text layer only: this model does not take page images.');
+    return docs;
+  };
+  try {
+    return note(await readPages(f, input, model, s, log, state));
+  } catch (e) {
+    if (!(e instanceof BadReplyError && e.cut) || input.pages.length === 1) throw e;
+  }
+  log.push({ model, outcome: 'reply too long for one request; reading page by page' });
+  const all: ExtractedDocument[] = [];
+  for (const p of input.pages) {
+    const docs = await readPages(f, { name: input.name, pages: [p] }, model, s, log, state);
+    for (const d of docs) d.pages = [p.page];
+    all.push(...docs);
+  }
+  return note(mergePageDocs(all));
 }
 
 const unsure = (docs: ExtractedDocument[]) => docs.some((d) => d.confidence !== 'high' || d.problems.length > 0);
@@ -175,16 +319,23 @@ const unsure = (docs: ExtractedDocument[]) => docs.some((d) => d.confidence !== 
 export async function extract(input: ExtractionInput, s: Settings, f: Fetch = fetch.bind(globalThis)): Promise<ExtractionResult> {
   const attempts: ExtractionResult['attempts'] = [];
   const second = s.secondModel && s.secondModel !== s.model ? s.secondModel : null;
+  const fail = (e: unknown): never => {
+    const details = attempts.map((a) => `${a.model}: ${a.outcome}`).join('\n');
+    throw new ExtractionError((e as Error).message, details);
+  };
   try {
     const docs = await readWithModel(f, input, s.model, s, attempts);
     if (!second || !unsure(docs)) return { docs, model: s.model, attempts };
     attempts.push({ model: s.model, outcome: 'unsure; asking the second model' });
   } catch (e) {
-    if (!second || (e as GatewayError).status === 401) throw e;
-    attempts.push({ model: s.model, outcome: `failed: ${(e as Error).message}` });
+    if (!second || (e as GatewayError).status === 401) fail(e);
   }
-  const docs = await readWithModel(f, input, second!, s, attempts);
-  return { docs, model: second!, attempts };
+  try {
+    const docs = await readWithModel(f, input, second!, s, attempts);
+    return { docs, model: second!, attempts };
+  } catch (e) {
+    return fail(e);
+  }
 }
 
 /** Model ids from the gateway (no key needed for the list). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRequest, describeStatus, extract, KKU_GATEWAY, listModels, parseJsonReply } from '../../src/extraction/client';
+import { buildRequest, describeStatus, extract, ExtractionError, KKU_GATEWAY, listModels, mergePageDocs, parseJsonReply, repairJson } from '../../src/extraction/client';
 import { validateExtracted, validateFileReply } from '../../src/extraction/validate';
 import { FILE_SCHEMA } from '../../src/extraction/schema';
 import { DEFAULT_SETTINGS } from '../../src/shared/types';
@@ -26,6 +26,7 @@ function gateway(handle: (body: any) => [number, unknown]) {
   return { f, calls };
 }
 const reply = (docs: object[], wrap = (t: string) => t) => ({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: wrap(JSON.stringify({ documents: docs })) } }] });
+const raw = (content: string, finish = 'stop') => ({ choices: [{ finish_reason: finish, message: { role: 'assistant', content } }] });
 
 describe('request to the KKU gateway', () => {
   it('sends text and page images in OpenAI chat format, with the JSON schema', () => {
@@ -136,5 +137,54 @@ describe('reply parsing and validation', () => {
   });
   it('rejects unknown document types', () => {
     expect(() => validateExtracted({ ...doc({}), doc_type: 'invoice' })).toThrow();
+  });
+});
+
+describe('broken or cut-off replies', () => {
+  const folio = doc({ doc_type: 'hotel_folio', issuer_name: 'Test Hotel', stay: { check_in: '2026-11-10', check_out: '2026-11-13', nights: 3, room_no: null } });
+  it('repairs trailing commas and raw line breaks locally', () => {
+    expect(JSON.parse(repairJson('{"a":["x",],"b":"line1\nline2",}'.replace('\\n', '\n')))).toEqual({ a: ['x'], b: 'line1\nline2' });
+  });
+  it('asks the model to fix JSON it cannot parse, once', async () => {
+    const good = JSON.stringify({ documents: [folio] });
+    const broken = good.replace('"hotel_folio",', '"hotel_folio" "oops",');
+    const g = gateway((b) => (b.messages[0].content.startsWith('You fix malformed JSON') ? [200, raw(good)] : [200, raw(broken)]));
+    const r = await extract(input, settings, g.f);
+    expect(g.calls).toHaveLength(2);
+    expect(r.docs[0]!.doc_type).toBe('hotel_folio');
+    expect(r.attempts.map((a) => a.outcome).join()).toMatch(/asking the model to fix it/);
+  });
+  it('reads page by page when the whole-file reply is cut off', async () => {
+    const pages = (b: any) => b.messages[1].content.filter((c: any) => c.type === 'text' && c.text.startsWith('--- Page')).length;
+    const g = gateway((b) => {
+      if (pages(b) > 1) return [200, raw(JSON.stringify({ documents: [folio, folio] }).slice(0, 581))]; // cut mid-array, no finish reason
+      const page = b.messages[1].content.find((c: any) => c.text?.startsWith('--- Page')).text.match(/Page (\d)/)[1];
+      return [200, reply([page === '1' ? { ...folio, total_amount: null } : { ...folio, total_amount: 4500, stay: null }])];
+    });
+    const r = await extract(input, settings, g.f);
+    expect(g.calls).toHaveLength(3);
+    expect(r.docs).toHaveLength(1);
+    expect(r.docs[0]).toMatchObject({ doc_type: 'hotel_folio', pages: [1, 2], total_amount: 4500, stay: { nights: 3 } });
+    expect(r.attempts.map((a) => a.outcome).join('\n')).toMatch(/cut off[\s\S]*page by page/);
+  });
+  it('treats finish_reason MAX_TOKENS as cut off', async () => {
+    const g = gateway((b) => {
+      const n = b.messages[1].content.filter((c: any) => c.type === 'text' && c.text.startsWith('--- Page')).length;
+      return n > 1 ? [200, raw('{"documents":[', 'MAX_TOKENS')] : [200, reply([folio])];
+    });
+    const r = await extract(input, settings, g.f);
+    expect(r.docs.length).toBeGreaterThan(0);
+  });
+  it('gives the attempt log with the error when everything fails', async () => {
+    const g = gateway(() => [200, raw('not json at all')]);
+    const e = await extract(input, settings, g.f).catch((x) => x);
+    expect(e).toBeInstanceOf(ExtractionError);
+    expect(e.details).toMatch(/gemini-3.8-flash/);
+  });
+  it('keeps separate boarding passes separate when merging pages', () => {
+    const bp = doc({ doc_type: 'boarding_pass' });
+    expect(mergePageDocs([bp, bp])).toHaveLength(2);
+    expect(mergePageDocs([folio, folio])).toHaveLength(1);
+    expect(mergePageDocs([folio, { ...folio, issuer_name: 'Other Hotel' }])).toHaveLength(2);
   });
 });

@@ -103,3 +103,4 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 details > summary { cursor: pointer; }
 .doc { border-top: 1px solid var(--line); padding-top: 6px; display: flex; flex-direction: column; gap: 3px; }
 .doc select { width: auto; }
+.log { white-space: pre-wrap; word-break: break-word; font: 11px/1.4 ui-monospace, monospace; margin: 4px 0 0; color: var(--muted); }
