@@ -52,15 +52,15 @@ export const RULES = {
   },
   oneFilePerLine: {
     id: 'evidence.one-file',
-    text: 'DPA takes one PDF per claim line. Merging signed PDFs breaks the signatures, so use Prepare for signing to merge the scans, then sign the merged file in Acrobat.',
+    text: 'DPA takes one signed PDF per claim line. Put this line\'s documents in one PDF (receipt with folio, or receipt with boarding passes), sign it in Acrobat with the KKU Digital ID, and add that file instead.',
   },
   pdfOnly: {
     id: 'evidence.pdf-only',
-    text: 'DPA accepts PDF evidence only. Convert images with Prepare for signing, then sign the PDF.',
+    text: 'DPA accepts signed PDF evidence only. Make the image into a PDF, sign it in Acrobat, and add the signed PDF.',
   },
   unsigned: {
     id: 'evidence.signed',
-    text: 'Evidence must be signed in Adobe Acrobat with the KKU Digital ID before upload.',
+    text: 'Only signed files can be uploaded. Sign the PDF in Adobe Acrobat with the KKU Digital ID, then add the signed file.',
   },
   modifiedAfterSigning: {
     id: 'evidence.modified',

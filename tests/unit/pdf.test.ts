@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { checkSignatures } from '../../src/pdf/signature';
 import { sha256Hex, bytesToBase64, base64ToBytes } from '../../src/pdf/hash';
-import { mergeForSigning } from '../../src/pdf/merge';
-import { PDFDocument } from 'pdf-lib';
 
 const fx = (n: string) => new Uint8Array(fs.readFileSync(`tests/fixtures/pdf/${n}`));
 
@@ -35,22 +33,5 @@ describe('hashing and base64', () => {
   it('round-trips base64 without changing bytes', () => {
     const b = fx('signed.pdf');
     expect(base64ToBytes(bytesToBase64(b))).toEqual(b);
-  });
-});
-
-describe('prepare for signing', () => {
-  it('merges PDFs and images into one unsigned PDF', async () => {
-    const a = await PDFDocument.create();
-    a.addPage();
-    a.addPage();
-    // 1×1 PNG
-    const png = base64ToBytes('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==');
-    const merged = await mergeForSigning([
-      { name: 'a.pdf', mime: 'application/pdf', bytes: await a.save() },
-      { name: 'b.png', mime: 'image/png', bytes: png },
-    ]);
-    const doc = await PDFDocument.load(merged);
-    expect(doc.getPageCount()).toBe(3);
-    expect(checkSignatures(merged).signed).toBe(false);
   });
 });

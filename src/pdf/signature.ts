@@ -85,7 +85,7 @@ export function checkSignatures(bytes: Uint8Array): SignatureInfo {
     const gap = s.slice(a + b, c);
     const hex = /<([0-9a-fA-F\s]+)>/.exec(gap)?.[1];
     const coversWholeFile = c + d === bytes.length;
-    if (!hex) {
+    if (!hex || /^[0\s]*$/.test(hex)) {
       errors.push('A /ByteRange has no /Contents blob');
       signatures.push({ signerName: null, signingTime: null, coversWholeFile });
       continue;
@@ -94,8 +94,11 @@ export function checkSignatures(bytes: Uint8Array): SignatureInfo {
       signatures.push({ ...parseCms(hexToBytes(hex)), coversWholeFile });
       parsed++;
     } catch (e) {
+      // A signature is there but its blob did not decode here (e.g. an unusual
+      // encoding). Count it as signed with an unknown signer; DPA's SIGNED BY decides.
       errors.push((e as Error).message);
       signatures.push({ signerName: null, signingTime: null, coversWholeFile });
+      parsed++;
     }
   }
   return {

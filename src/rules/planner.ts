@@ -2,6 +2,7 @@
 // Pure: no DOM, no network. Every number on a line carries a Trace (spec §2 rule 5).
 
 import type { ClaimRow, Flag, IngestedFile, Plan, PlannedLine, PlannedTimes, Settings, TripContext } from '../shared/types';
+import { docUnits } from '../shared/types';
 import { CATEGORY, ITEM } from '../config/labels';
 import { formatMoney, parseBeDateTime, round2 } from '../shared/dates';
 import { RULES } from './text';
@@ -25,10 +26,12 @@ export function buildPlan(input: PlanInput): Plan {
   const flags: Flag[] = [];
   const lines: PlannedLine[] = [];
 
-  for (const f of files) flags.push(...checkExtraction(f));
+  // Rules work per document; a file can hold several (receipt + boarding passes).
+  const units = docUnits(files);
+  for (const u of units) flags.push(...checkExtraction(u));
 
   // Times shared by every line.
-  const legs = flightLegs(files);
+  const legs = flightLegs(units);
   const proposed = proposeTimes(legs, ctx, settings);
   const times: PlannedTimes = input.times ?? { depart: proposed.depart, start: proposed.start, end: proposed.end, return: proposed.return };
   const timeTraces = input.times
@@ -82,7 +85,7 @@ export function buildPlan(input: PlanInput): Plan {
   }
 
   // Hotel
-  const hotel = planHotel(files, ctx, 'hotel');
+  const hotel = planHotel(units, ctx, 'hotel');
   if (hotel) {
     flags.push(...hotel.flags);
     if (hotel.cap) {
@@ -104,7 +107,7 @@ export function buildPlan(input: PlanInput): Plan {
   }
 
   // Airfare: one line per booking
-  for (const b of planAirfare(files, (ref) => `airfare:${ref}`)) {
+  for (const b of planAirfare(units, (ref) => `airfare:${ref}`)) {
     const id = `airfare:${b.bookingRef || 'unknown'}`;
     flags.push(...b.flags);
     if (!b.split) continue;
@@ -127,7 +130,7 @@ export function buildPlan(input: PlanInput): Plan {
   for (const l of lines) {
     const ev = l.evidenceFileIds.map((id) => files.find((f) => f.id === id)!).filter(Boolean);
     flags.push(...checkEvidence(ev, l.id));
-    for (const f of ev) flags.push(...checkBilledTo(f, settings, l.id));
+    for (const u of units.filter((u) => l.evidenceFileIds.includes(u.id))) flags.push(...checkBilledTo(u, settings, l.id));
     const { duplicate, sameItem } = findExisting(l, existing);
     if (duplicate) {
       l.duplicate = true;
@@ -139,8 +142,8 @@ export function buildPlan(input: PlanInput): Plan {
 
   // Files the plan does not use (e.g. a taxi receipt).
   const used = new Set(lines.flatMap((l) => l.evidenceFileIds));
-  for (const f of files) {
-    if (f.extracted?.doc_type === 'other' && !used.has(f.id)) {
+  for (const f of units) {
+    if (f.extracted.doc_type === 'other' && !used.has(f.id)) {
       const taxi = /taxi|แท็กซี่|grab|bolt|รถรับจ้าง/i.test(`${f.extracted.issuer_name} ${f.extracted.line_items.map((i) => i.description).join(' ')}`);
       flags.push({ level: 'info', rule: taxi ? RULES.taxi.id : 'files.unused', message: taxi ? `${RULES.taxi.text} (${f.name})` : `${f.name} was not used for any line.` });
     }

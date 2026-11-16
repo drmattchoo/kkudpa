@@ -31,5 +31,5 @@ export type WorkerRequest = {
 };
 
 export type WorkerResponse =
-  | { ok: true; doc: ExtractedDocument; model: string; attempts: { model: string; outcome: string }[] }
+  | { ok: true; docs: ExtractedDocument[]; model: string; attempts: { model: string; outcome: string }[] }
   | { ok: false; error: string };

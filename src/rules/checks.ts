@@ -1,4 +1,4 @@
-import type { ClaimRow, Flag, IngestedFile, PlannedLine, Settings, TripContext } from '../shared/types';
+import type { ClaimRow, DocUnit, Flag, IngestedFile, PlannedLine, Settings, TripContext } from '../shared/types';
 import { ITEM } from '../config/labels';
 import { formatMoney, round2 } from '../shared/dates';
 import { RULES } from './text';
@@ -61,7 +61,7 @@ export function checkBudget(lines: PlannedLine[], rows: ClaimRow[], ctx: TripCon
 const UNIVERSITY = [/มหาวิทยาลัยขอนแก่น/, /khon\s*kaen\s*university/i, /\bKKU\b/];
 
 /** Receipts should be in the unit's name and tax ID (spec §4). */
-export function checkBilledTo(f: Pick<IngestedFile, 'name' | 'extracted'>, s: Settings, lineId?: string): Flag[] {
+export function checkBilledTo(f: Pick<DocUnit, 'name' | 'extracted'>, s: Settings, lineId?: string): Flag[] {
   const x = f.extracted;
   if (!x || !['airfare_receipt', 'hotel_receipt', 'hotel_receipt_and_folio'].includes(x.doc_type)) return [];
   const name = x.billed_to_name ?? '';
@@ -83,19 +83,18 @@ export function checkEvidence(files: IngestedFile[], lineId: string): Flag[] {
       flags.push({ level: 'block', rule: RULES.pdfOnly.id, message: `${RULES.pdfOnly.text} (${f.name})`, lineId });
       continue;
     }
-    if (files.length > 1) continue; // will be merged and re-signed anyway
     if (f.signature && !f.signature.signed) {
-      flags.push({ level: 'warn', rule: RULES.unsigned.id, message: `${RULES.unsigned.text} ${f.name} has no signature.`, lineId });
+      flags.push({ level: 'block', rule: RULES.unsigned.id, message: `${RULES.unsigned.text} ${f.name} has no signature.`, lineId });
     }
     const last = f.signature?.signatures.at(-1);
     if (last && !last.coversWholeFile) {
-      flags.push({ level: 'warn', rule: RULES.modifiedAfterSigning.id, message: `${RULES.modifiedAfterSigning.text} (${f.name})`, lineId });
+      flags.push({ level: 'block', rule: RULES.modifiedAfterSigning.id, message: `${RULES.modifiedAfterSigning.text} (${f.name})`, lineId });
     }
   }
   return flags;
 }
 
-export function checkExtraction(f: IngestedFile): Flag[] {
+export function checkExtraction(f: Pick<DocUnit, 'name' | 'extracted'>): Flag[] {
   const x = f.extracted;
   if (!x) return [];
   if (x.confidence === 'low' || x.problems.length) {

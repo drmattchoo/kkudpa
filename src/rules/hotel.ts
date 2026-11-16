@@ -1,4 +1,4 @@
-import type { ExtractedDocument, Flag, IngestedFile, Trace, TripContext } from '../shared/types';
+import type { DocUnit, ExtractedDocument, Flag, Trace, TripContext } from '../shared/types';
 import { round2, formatMoney, isoToNaive, HOUR } from '../shared/dates';
 import { RULES } from './text';
 
@@ -44,7 +44,7 @@ export function nightsBetween(checkIn: string, checkOut: string): number {
   return Math.round((isoToNaive(checkOut) - isoToNaive(checkIn)) / (24 * HOUR));
 }
 
-type F = Pick<IngestedFile, 'id' | 'name' | 'extracted'>;
+type F = Pick<DocUnit, 'id' | 'name' | 'extracted'>;
 
 export interface HotelDocs {
   receipt: F | null;
@@ -127,7 +127,7 @@ export function planHotel(files: F[], ctx: TripContext, lineId: string): HotelPl
     }
   }
 
-  return { cap, nights, traces, flags, evidenceFileIds: docs.evidence.map((f) => f.id), note };
+  return { cap, nights, traces, flags, evidenceFileIds: [...new Set(docs.evidence.map((f) => f.id))], note };
 }
 
 function addDays(iso: string, n: number): string {

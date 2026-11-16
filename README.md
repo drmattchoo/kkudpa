@@ -7,15 +7,15 @@ Built from `DPA_EXTENSION_SPEC.md`, milestones 1–4, plus proxy mode. Status: r
 ## What it does
 
 1. **Trip.** Reads the open trip form: TRIP number, trip dates, location, the traveller's entitlement (อัตราค่าเบี้ยเลี้ยง, ประเภทห้องพัก, อัตราค่าห้องพัก), the approved estimate, the lines already in the claim table, and the finance officer's notes. It also checks that every label it needs is on the page.
-2. **Files.** You drop the PDFs (or JPG/PNG). For each one it shows the SHA-256, whether it is signed and by whom, and the values the model read. Prepare for signing merges the scans for one line into one unsigned PDF for you to sign in Acrobat.
+2. **Signed files.** This is the only thing you provide: the PDFs you have already signed in Acrobat with your KKU Digital ID, one per claim line. For example, one file with the airfare receipt and both boarding passes, and one with the hotel receipt and folio. The extension reads every document inside each file, shows whether the file is signed and by whom, and uploads it to DPA unchanged. An unsigned file, or a line whose documents are split over two files, blocks that line with a note saying what to fix.
 3. **Review.** It proposes the lines and shows where every number came from. Click a source to see the page. You confirm the four times and tick each line.
 4. **Fill.** For each line it clicks the traveller row, chooses the category and item, types the times and amounts, attaches the evidence, reads DPA's computed amount and compares it with the plan. A dry run stops there. Add mode presses เพิ่มรายการขอเบิก, but only when DPA's figure matches the plan.
 
 | Line | DPA category → item | What is entered | Evidence |
 |---|---|---|---|
 | Per diem | ค่าเบี้ยเลี้ยง → ค่าเบี้ยเลี้ยงเดินทางในประเทศ | the four times; DPA computes days × อัตราต่อวัน | none |
-| Hotel | ค่าที่พัก → ค่าที่พักเดินทางในประเทศ | ที่พักจำนวน (nights), อัตราต่อคืน | receipt + folio, one signed PDF |
-| Airfare | ค่ายานพาหนะ → ค่าบัตรโดยสารเครื่องบินในประเทศ | ระบุจำนวนเงิน = fare + airport tax | receipt/tax invoice + boarding passes, one signed PDF |
+| Hotel | ค่าที่พัก → ค่าที่พักเดินทางในประเทศ | ที่พักจำนวน (nights), อัตราต่อคืน | your signed PDF with the receipt + folio |
+| Airfare | ค่ายานพาหนะ → ค่าบัตรโดยสารเครื่องบินในประเทศ | ระบุจำนวนเงิน = fare + airport tax | your signed PDF with the receipt/tax invoice + boarding passes |
 
 ## Safety rules in the code
 
@@ -39,7 +39,7 @@ Settings (⚙): choose the KKU proxy (enter its URL, then Allow access) or your 
 ## Tests
 
 ```bash
-npm run test:unit   # rules, extraction request and validation, signatures, merge
+npm run test:unit   # rules, extraction request and validation, signatures
 npm run test:dom    # the content-script bundle against saved DPA pages
 npm run smoke       # build, load dist/ in Chromium, check the content script and side panel
 ```
@@ -57,7 +57,7 @@ Keep real saves and real receipts in `private/`, which git ignores. **This repos
 ## Milestone 5: live dry run
 
 1. Open a trip with status รอเบิกจ่าย. Read it in tab 1; the page check must pass.
-2. Drop the signed files and read them. Check every value against the page in Review.
+2. Drop your signed files (one per claim line) and read them. Check every value against the page in Review.
 3. Fill each line in **Dry run** mode. Compare DPA's computed amount and days with the plan. Watch whether the evidence file attaches by itself; if DPA ignores it, the panel asks you to click the highlighted box and choose the file.
 4. Press ล้างข้อมูล in DPA between lines, or reload the trip without saving.
 5. Report back what differed. The likely fixes are label strings in `src/config/labels.ts` and wait times in `src/content/k2.ts`.
@@ -73,7 +73,10 @@ Keep real saves and real receipts in `private/`, which git ignores. **This repos
 | §7.3 times | Work start/end default to the DPA activity dates at 08:30 / 16:30 (settings) | The spec gives defaults for departure and return only. |
 | §4 hotel | Below the cap, rate per night = receipt ÷ nights, rounded to satang | DPA computes nights × rate, so the claim can differ from the receipt by a few satang. The review screen says so when it happens. |
 | §5 permissions | Adds `optional_host_permissions: https://*/*`, used only to ask for the proxy's own origin when you press Allow access | The proxy URL is not known at build time. Nothing is granted until you approve it. |
+| §6 one object per file | `{ documents: [...] }` per file, one entry per document with its pages | The person adds only signed files, one per claim line, so one file usually holds a receipt and its boarding passes or folio. The return time needs the inbound boarding pass, which is inside the airfare file. |
 | §6 schema `flight`, `stay` | Nullable objects | A receipt has no stay; a folio has no flight. |
+| §7 Prepare for signing | Removed | You add the signed files only. Signing and combining documents happen in Acrobat before you start. |
+| §5 accepts PDF, JPG, PNG | Signed PDFs only; unsigned evidence blocks the line | DPA takes PDF, and only a signed file is valid evidence. |
 
 ## Layout
 
@@ -81,7 +84,7 @@ Keep real saves and real receipts in `private/`, which git ignores. **This repos
 src/config/labels.ts     every DPA label, item name, deny and allow list
 src/rules/               pure rules engine (per diem, hotel, airfare, budget, checks, planner, review edits)
 src/extraction/          schema, prompt, API client, validation
-src/pdf/                 signature check, SHA-256, prepare-for-signing merge
+src/pdf/                 signature check, SHA-256
 src/content/             K2 adapter, page reader, fill driver (content script)
 src/background/          service worker: extraction calls
 src/sidepanel/           UI

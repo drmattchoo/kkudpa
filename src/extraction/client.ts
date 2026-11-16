@@ -7,9 +7,9 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { ExtractedDocument, Settings } from '../shared/types';
-import { RECORD_DOCUMENT_SCHEMA } from './schema';
+import { FILE_SCHEMA } from './schema';
 import { EXTRACTION_SYSTEM, extractionUserText } from './prompt';
-import { validateExtracted } from './validate';
+import { validateFileReply } from './validate';
 
 export const SONNET = 'claude-sonnet-5-5';
 export const HAIKU = 'claude-haiku-5-5';
@@ -22,7 +22,7 @@ export interface ExtractionInput {
 }
 
 export interface ExtractionResult {
-  doc: ExtractedDocument;
+  docs: ExtractedDocument[];
   model: string;
   attempts: { model: string; outcome: string }[];
 }
@@ -56,12 +56,12 @@ export function buildRequest(input: ExtractionInput, model: string, s: Settings)
     max_tokens: 16000,
     system: EXTRACTION_SYSTEM,
     messages: [{ role: 'user' as const, content: [source, { type: 'text' as const, text: extractionUserText(input.name) }] }],
-    output_config: { effort: s.effort, format: { type: 'json_schema' as const, schema: RECORD_DOCUMENT_SCHEMA } },
+    output_config: { effort: s.effort, format: { type: 'json_schema' as const, schema: FILE_SCHEMA } },
     ...(useFallback ? { betas: [FALLBACK_BETA], fallbacks: 'default' as const } : { betas: [] as string[] }),
   };
 }
 
-async function callOnce(client: Anthropic, input: ExtractionInput, model: string, s: Settings): Promise<ExtractedDocument> {
+async function callOnce(client: Anthropic, input: ExtractionInput, model: string, s: Settings): Promise<ExtractedDocument[]> {
   const req = buildRequest(input, model, s);
   // Streaming avoids HTTP timeouts on large multi-page scans.
   const stream = client.beta.messages.stream(req as Parameters<typeof client.beta.messages.stream>[0]);
@@ -75,13 +75,13 @@ async function callOnce(client: Anthropic, input: ExtractionInput, model: string
   } catch {
     throw new Error(`The reply for ${input.name} was not valid JSON.`);
   }
-  return validateExtracted(parsed);
+  return validateFileReply(parsed);
 }
 
-const needsRetry = (d: ExtractedDocument) => d.confidence !== 'high' || d.problems.length > 0;
+const needsRetry = (docs: ExtractedDocument[]) => docs.some((d) => d.confidence !== 'high' || d.problems.length > 0);
 
 /**
- * Runs extraction. With haikuFirst, PDFs go to Haiku first and are retried on Sonnet
+ * Runs extraction on one file and returns every document in it. With haikuFirst, PDFs go to Haiku first and are retried on Sonnet
  * when Haiku reports low/medium confidence, problems, or fails (spec §8).
  */
 export async function extract(input: ExtractionInput, s: Settings, client = makeClient(s)): Promise<ExtractionResult> {
@@ -91,14 +91,14 @@ export async function extract(input: ExtractionInput, s: Settings, client = make
       const d = await callOnce(client, input, HAIKU, s);
       if (!needsRetry(d)) {
         attempts.push({ model: HAIKU, outcome: 'ok' });
-        return { doc: d, model: HAIKU, attempts };
+        return { docs: d, model: HAIKU, attempts };
       }
-      attempts.push({ model: HAIKU, outcome: `retrying: ${d.confidence} confidence${d.problems.length ? ', problems reported' : ''}` });
+      attempts.push({ model: HAIKU, outcome: 'retrying: low or medium confidence, or problems reported' });
     } catch (e) {
       attempts.push({ model: HAIKU, outcome: `retrying: ${(e as Error).message}` });
     }
   }
   const d = await callOnce(client, input, s.model, s);
   attempts.push({ model: s.model, outcome: 'ok' });
-  return { doc: d, model: s.model, attempts };
+  return { docs: d, model: s.model, attempts };
 }

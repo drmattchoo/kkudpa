@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildRequest, extract, HAIKU, SONNET } from '../../src/extraction/client';
-import { validateExtracted } from '../../src/extraction/validate';
-import { RECORD_DOCUMENT_SCHEMA } from '../../src/extraction/schema';
+import { validateExtracted, validateFileReply } from '../../src/extraction/validate';
+import { FILE_SCHEMA } from '../../src/extraction/schema';
 import { DEFAULT_SETTINGS } from '../../src/shared/types';
 import { doc } from './helpers';
 
@@ -20,7 +20,7 @@ describe('request', () => {
   });
   it('uses structured output, no forced tool choice and no temperature', () => {
     const r = buildRequest(input, SONNET, DEFAULT_SETTINGS) as Record<string, unknown>;
-    expect(r.output_config).toMatchObject({ format: { type: 'json_schema', schema: RECORD_DOCUMENT_SCHEMA } });
+    expect(r.output_config).toMatchObject({ format: { type: 'json_schema', schema: FILE_SCHEMA } });
     expect(r).not.toHaveProperty('tool_choice');
     expect(r).not.toHaveProperty('temperature');
   });
@@ -38,7 +38,7 @@ describe('request', () => {
       }
       Object.values(s).forEach(walk);
     };
-    walk(RECORD_DOCUMENT_SCHEMA);
+    walk(FILE_SCHEMA);
   });
 });
 
@@ -55,6 +55,12 @@ describe('validation', () => {
     expect(d.total_amount).toBe(6205.04);
     expect(d.flight!.boarding_time).toBe('07:30');
   });
+  it('returns every document in a file', () => {
+    const docs = validateFileReply({ documents: [doc({ doc_type: 'airfare_receipt' }), doc({ doc_type: 'boarding_pass' }), doc({ doc_type: 'boarding_pass' })] });
+    expect(docs.map((d) => d.doc_type)).toEqual(['airfare_receipt', 'boarding_pass', 'boarding_pass']);
+    expect(() => validateFileReply({ documents: [] })).toThrow();
+    expect(() => validateFileReply({})).toThrow();
+  });
   it('rejects unknown document types', () => {
     expect(() => validateExtracted({ ...doc({}), doc_type: 'invoice' })).toThrow();
   });
@@ -62,7 +68,7 @@ describe('validation', () => {
 
 describe('model retry', () => {
   const reply = (d: object) => ({
-    stream: () => ({ finalMessage: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(d) }] }) }),
+    stream: () => ({ finalMessage: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ documents: [d] }) }] }) }),
   });
   const fakeClient = (byModel: Record<string, object>) => {
     const calls: string[] = [];

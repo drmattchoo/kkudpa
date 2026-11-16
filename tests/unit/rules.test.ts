@@ -245,3 +245,43 @@ describe('planner end to end', () => {
     expect(plan.flags.filter((f) => f.level === 'block')).toHaveLength(0);
   });
 });
+
+describe('one signed file per claim line', () => {
+  // What the person actually adds: one signed PDF per line, each holding several documents.
+  const airfareBundle = file('airfare-signed', [
+    airfareInvoice(),
+    boardingPass('2026-11-10', 'KKC', 'CNX', '3201', '17:30'),
+    boardingPass('2026-11-13', 'CNX', 'KKC', '3202', '15:20', '16:45'),
+  ]);
+  const hotelBundle = file('hotel-signed', [
+    { ...ibisCombined(4321.5), doc_type: 'hotel_receipt' as const, stay: null },
+    { ...ibisCombined(4321.5), doc_type: 'hotel_folio' as const, total_amount: null },
+  ]);
+
+  it('takes the per diem times from both boarding passes inside the airfare file', () => {
+    const plan = buildPlan({ files: [airfareBundle, hotelBundle], ctx: ctx(), existing: [], settings });
+    const pd = plan.lines.find((l) => l.id === 'per_diem')!;
+    expect(pd.times.depart).toBe('10-11-2569 15:30');
+    expect(pd.times.return).toBe('13-11-2569 17:45');
+  });
+  it('uses each signed file, as is, as the evidence for its line, with nothing to fix', () => {
+    const plan = buildPlan({ files: [airfareBundle, hotelBundle], ctx: ctx(), existing: [], settings, timesConfirmed: true });
+    const byId = Object.fromEntries(plan.lines.map((l) => [l.id, l]));
+    expect(byId['airfare:ABC123']!.evidenceFileIds).toEqual(['airfare-signed']);
+    expect(byId['airfare:ABC123']!.amount).toBe(4180);
+    expect(byId.hotel!.evidenceFileIds).toEqual(['hotel-signed']);
+    expect(byId.hotel!.amount).toBe(4321.5);
+    expect(plan.flags.filter((f) => f.level === 'block')).toEqual([]);
+  });
+  it('blocks a line whose file is not signed', () => {
+    const unsigned = { ...hotelBundle, signature: { signed: false, signatures: [] } };
+    const plan = buildPlan({ files: [airfareBundle, unsigned], ctx: ctx(), existing: [], settings, timesConfirmed: true });
+    expect(plan.flags.filter((f) => f.level === 'block').map((f) => [f.lineId, f.rule])).toEqual([['hotel', 'evidence.signed']]);
+  });
+  it('blocks a line whose documents are spread over two files', () => {
+    const r = file('r', { ...ibisCombined(), doc_type: 'hotel_receipt' });
+    const fo = file('fo', { ...ibisCombined(), doc_type: 'hotel_folio' });
+    const plan = buildPlan({ files: [r, fo], ctx: ctx(), existing: [], settings, timesConfirmed: true });
+    expect(plan.flags.some((f) => f.lineId === 'hotel' && f.rule === 'evidence.one-file' && f.level === 'block')).toBe(true);
+  });
+});

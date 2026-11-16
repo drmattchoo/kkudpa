@@ -18,7 +18,7 @@ chrome.runtime.onMessage.addListener((msg: WorkerRequest & { target?: string }, 
     try {
       const s = await loadSettings();
       const r = await extract(msg.file, s);
-      return { ok: true, doc: r.doc, model: r.model, attempts: r.attempts };
+      return { ok: true, docs: r.docs, model: r.model, attempts: r.attempts };
     } catch (e) {
       return { ok: false, error: describe(e) };
     }

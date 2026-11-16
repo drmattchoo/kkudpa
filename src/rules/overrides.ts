@@ -2,6 +2,7 @@
 // those edits affect (evidence, billed-to, budget). Pure.
 
 import type { ClaimRow, Flag, IngestedFile, Plan, PlannedLine, Settings, TripContext } from '../shared/types';
+import { docUnits } from '../shared/types';
 import { round2, formatMoney } from '../shared/dates';
 import { checkBilledTo, checkBudget, checkEvidence, findExisting } from './checks';
 import { RULES } from './text';
@@ -57,7 +58,7 @@ export function applyOverrides(
     if (!touched.has(l.id)) continue;
     const ev = l.evidenceFileIds.map((id) => files.find((f) => f.id === id)).filter((f): f is IngestedFile => !!f);
     flags.push(...checkEvidence(ev, l.id));
-    for (const f of ev) flags.push(...checkBilledTo(f, settings, l.id));
+    for (const u of docUnits(ev)) flags.push(...checkBilledTo(u, settings, l.id));
     const { duplicate, sameItem } = findExisting(l, existing);
     l.duplicate = !!duplicate;
     if (duplicate) flags.push({ level: 'info', rule: RULES.duplicate.id, message: `${RULES.duplicate.text} ${l.item} ${formatMoney(l.amount)}.`, lineId: l.id });

@@ -1,4 +1,4 @@
-import type { ExtractedDocument, Flag, IngestedFile, Trace } from '../shared/types';
+import type { DocUnit, ExtractedDocument, Flag, Trace } from '../shared/types';
 import { round2, formatMoney } from '../shared/dates';
 import { RULES } from './text';
 import { docTrace } from './hotel';
@@ -36,7 +36,7 @@ export function splitAirfare(doc: ExtractedDocument): AirfareSplit {
   return { amount: round2(included.reduce((s, i) => s + i.amount, 0)), included, excluded, itemised: true };
 }
 
-type F = Pick<IngestedFile, 'id' | 'name' | 'extracted' | 'mime'>;
+type F = Pick<DocUnit, 'id' | 'name' | 'extracted' | 'mime'>;
 
 export interface AirfareBooking {
   bookingRef: string;

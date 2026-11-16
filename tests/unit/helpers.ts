@@ -1,6 +1,6 @@
 // Synthetic, anonymised documents shaped like the model's output for the spec's test
 // set: an ibis receipt and folio, two AirAsia boarding passes and an e-tax invoice.
-import type { ExtractedDocument, IngestedFile, TripContext } from '../../src/shared/types';
+import type { DocUnit, ExtractedDocument, IngestedFile, TripContext } from '../../src/shared/types';
 import { DEFAULT_SETTINGS } from '../../src/shared/types';
 
 export function doc(over: Partial<ExtractedDocument>): ExtractedDocument {
@@ -28,7 +28,9 @@ export function doc(over: Partial<ExtractedDocument>): ExtractedDocument {
   };
 }
 
-export function file(id: string, extracted: ExtractedDocument, over: Partial<IngestedFile> = {}): IngestedFile {
+/** A signed PDF holding one or more documents. Also usable as a single DocUnit in rule tests. */
+export function file(id: string, extracted: ExtractedDocument | ExtractedDocument[], over: Partial<IngestedFile> = {}): IngestedFile & DocUnit {
+  const docs = Array.isArray(extracted) ? extracted : [extracted];
   return {
     id,
     name: `${id}.pdf`,
@@ -36,7 +38,8 @@ export function file(id: string, extracted: ExtractedDocument, over: Partial<Ing
     size: 1000,
     sha256: id.padEnd(64, '0'),
     signature: { signed: true, signatures: [{ signerName: 'TEST SIGNER', signingTime: null, coversWholeFile: true }] },
-    extracted,
+    documents: docs,
+    extracted: docs[0]!,
     ...over,
   };
 }

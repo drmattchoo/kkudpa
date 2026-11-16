@@ -1,6 +1,7 @@
-// JSON schema for one extracted document (spec §6), in the form structured outputs
-// accepts: every property required, additionalProperties false, nullable as a union.
-// The model returns exactly one object of this shape per file.
+// JSON schema for the extraction reply, in the form structured outputs accepts: every
+// property required, additionalProperties false, nullable as a union.
+// One reply per file: { documents: [...] }, one entry per document in the file (spec §6
+// shape for each), because one signed PDF usually holds several documents.
 
 const str = { type: 'string' } as const;
 const num = { type: 'number' } as const;
@@ -17,7 +18,7 @@ const obj = (properties: Record<string, unknown>) => ({
 export const DOC_TYPES = ['boarding_pass', 'airfare_receipt', 'hotel_receipt', 'hotel_folio', 'hotel_receipt_and_folio', 'other'] as const;
 export const ITEM_CATEGORIES = ['fare', 'airport_tax', 'addon', 'room', 'other'] as const;
 
-export const RECORD_DOCUMENT_SCHEMA = obj({
+export const DOCUMENT_SCHEMA = obj({
   doc_type: { type: 'string', enum: DOC_TYPES },
   pages: { type: 'array', items: { type: 'integer' }, description: 'Page numbers (1-based) that belong to this document.' },
   issuer_name: str,
@@ -73,4 +74,12 @@ export const RECORD_DOCUMENT_SCHEMA = obj({
   },
   confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
   problems: { type: 'array', items: str, description: 'Anything unreadable or ambiguous. Report here instead of guessing.' },
+});
+
+export const FILE_SCHEMA = obj({
+  documents: {
+    type: 'array',
+    description: 'Every document in the file, in page order. A receipt, each boarding pass and a folio are separate documents.',
+    items: DOCUMENT_SCHEMA,
+  },
 });

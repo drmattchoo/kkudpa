@@ -8,6 +8,14 @@ import { DOC_TYPES, ITEM_CATEGORIES } from './schema';
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 const hhmm = /^\d{1,2}:\d{2}$/;
 
+/** Validates a whole reply: { documents: [...] }. */
+export function validateFileReply(raw: unknown): ExtractedDocument[] {
+  const docs = (raw as { documents?: unknown })?.documents;
+  if (!Array.isArray(docs)) throw new Error('Reply has no documents array');
+  if (docs.length === 0) throw new Error('No documents were found in the file');
+  return docs.map(validateExtracted);
+}
+
 export function validateExtracted(raw: unknown): ExtractedDocument {
   if (!raw || typeof raw !== 'object') throw new Error('Reply is not an object');
   const r = raw as Record<string, any>;

@@ -1,7 +1,8 @@
 // Side panel: pick trip → drop files → review → fill. Nothing reaches DPA before the
 // person confirms each line (spec §5.6). The person saves and submits in DPA.
 
-import type { ClaimRow, Flag, IngestedFile, Plan, PlannedLine, PlannedTimes, Settings, TripContext } from '../shared/types';
+import type { ClaimRow, ExtractedDocument, Flag, IngestedFile, Plan, PlannedLine, PlannedTimes, Settings, TripContext } from '../shared/types';
+import { docUnits } from '../shared/types';
 import type { ContentEvent } from '../shared/messages';
 import type { FillReport, FillStep } from '../content/driver';
 import type { SelfTestItem } from '../content/reader';
@@ -11,7 +12,6 @@ import { flightLegs, proposeTimes } from '../rules/perDiem';
 import { formatMoney, parseBeDateTime } from '../shared/dates';
 import { checkSignatures } from '../pdf/signature';
 import { bytesToBase64, sha256Hex } from '../pdf/hash';
-import { mergeForSigning } from '../pdf/merge';
 import { DOC_TYPES } from '../extraction/schema';
 import { HAIKU, SONNET } from '../extraction/client';
 import { loadSettings, saveSettings, grantProxyAccess } from './settings';
@@ -38,7 +38,6 @@ const S = {
   overrides: {} as Record<string, LineOverride>,
   fill: {} as Record<string, FillState>,
   addMode: false,
-  mergeSel: new Set<string>(),
   busy: '' as string,
 };
 
@@ -47,7 +46,7 @@ const MAX_BYTES = 30 * 1024 * 1024;
 function plan(): Plan | null {
   if (!S.ctx) return null;
   const base = buildPlan({
-    files: S.files.filter((f) => f.extracted),
+    files: S.files.filter((f) => f.documents),
     ctx: S.ctx,
     existing: S.rows,
     settings: S.settings,
@@ -176,14 +175,14 @@ function viewTrip(): Child[] {
 const idOf = (sha: string, name: string) => `${sha.slice(0, 12)}-${name}`;
 
 async function addFiles(list: FileList | File[]) {
+  const refused: string[] = [];
   for (const f of Array.from(list)) {
-    const mime = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : f.type === 'image/png' ? 'image/png' : f.type === 'image/jpeg' ? 'image/jpeg' : null;
-    if (!mime) {
-      alert(`${f.name}: only PDF, JPG and PNG are accepted.`);
+    if (!(f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'))) {
+      refused.push(`${f.name}: only signed PDFs can be added.`);
       continue;
     }
     if (f.size > MAX_BYTES) {
-      alert(`${f.name} is larger than 30 MB.`);
+      refused.push(`${f.name} is larger than 30 MB.`);
       continue;
     }
     const bytes = new Uint8Array(await f.arrayBuffer());
@@ -191,8 +190,9 @@ async function addFiles(list: FileList | File[]) {
     const id = idOf(sha, f.name);
     if (S.files.some((x) => x.id === id)) continue;
     S.bytes.set(id, bytes);
-    S.files.push({ id, name: f.name, mime, size: f.size, sha256: sha, signature: mime === 'application/pdf' ? checkSignatures(bytes) : null, extracted: null });
+    S.files.push({ id, name: f.name, mime: 'application/pdf', size: f.size, sha256: sha, signature: checkSignatures(bytes), documents: null });
   }
+  if (refused.length) alert(refused.join('\n'));
   render();
 }
 
@@ -203,7 +203,7 @@ async function extractOne(f: IngestedFile) {
   const r = await toWorker({ type: 'extract', file: { name: f.name, mime: f.mime, base64: bytesToBase64(S.bytes.get(f.id)!) } });
   S.extracting.delete(f.id);
   if (r.ok) {
-    f.extracted = r.doc;
+    f.documents = r.docs;
     f.extractionModel = r.model;
   } else {
     f.extractionError = r.error;
@@ -212,93 +212,83 @@ async function extractOne(f: IngestedFile) {
 }
 
 async function extractAll() {
-  await Promise.all(S.files.filter((f) => !f.extracted && !S.extracting.has(f.id)).map(extractOne));
+  await Promise.all(S.files.filter((f) => !f.documents && !S.extracting.has(f.id)).map(extractOne));
 }
 
 function removeFile(f: IngestedFile) {
   S.files = S.files.filter((x) => x.id !== f.id);
   S.bytes.delete(f.id);
-  S.mergeSel.delete(f.id);
   forget(f.id);
   for (const o of Object.values(S.overrides)) if (o.evidenceFileId === f.id) delete o.evidenceFileId;
   render();
 }
 
 function sigBadge(f: IngestedFile) {
-  if (f.mime !== 'application/pdf') return h('span', { class: 'badge warn' }, 'image');
   const s = f.signature;
-  if (!s?.signed) return h('span', { class: 'badge bad', title: s?.error ?? '' }, 'unsigned');
+  if (!s?.signed) return h('span', { class: 'badge bad', title: s?.error ?? '' }, 'not signed');
   const last = s.signatures.at(-1)!;
   if (!last.coversWholeFile) return h('span', { class: 'badge bad' }, 'changed after signing');
-  return h('span', { class: 'badge ok' }, `signed: ${last.signerName ?? 'unknown signer'}`);
+  return h('span', { class: 'badge ok' }, `signed: ${last.signerName ?? 'signer not read'}`);
 }
 
-function summary(f: IngestedFile): Child {
-  const x = f.extracted;
-  if (!x) return null;
+const DOC_LABEL: Record<string, string> = {
+  boarding_pass: 'Boarding pass',
+  airfare_receipt: 'Airfare receipt / tax invoice',
+  hotel_receipt: 'Hotel receipt',
+  hotel_folio: 'Hotel folio',
+  hotel_receipt_and_folio: 'Hotel receipt + folio',
+  other: 'Other',
+};
+
+function docRow(f: IngestedFile, x: ExtractedDocument): Child {
   const bits: string[] = [];
-  if (x.total_amount != null) bits.push(`total ${money(x.total_amount)} ${x.currency}`);
+  if (x.flight) bits.push(`${x.flight.carrier}${x.flight.flight_no} ${x.flight.from_iata}→${x.flight.to_iata} ${x.flight.date}, boarding ${x.flight.boarding_time ?? '—'}${x.flight.arrival_time ? `, arrives ${x.flight.arrival_time}` : ''}`);
   if (x.stay) bits.push(`${x.stay.nights} nights ${x.stay.check_in} → ${x.stay.check_out}`);
-  if (x.flight) bits.push(`${x.flight.carrier}${x.flight.flight_no} ${x.flight.from_iata}→${x.flight.to_iata} ${x.flight.date} boarding ${x.flight.boarding_time ?? '—'}`);
+  if (x.total_amount != null) bits.push(`total ${money(x.total_amount)} ${x.currency}`);
   if (x.billed_to_name) bits.push(`billed to ${x.billed_to_name}`);
-  return [
-    h('div', { class: 'small' }, bits.join(' · ')),
+  return h('div', { class: 'doc' },
+    h('div', { class: 'row small' },
+      h('select', { 'aria-label': 'Document type', onchange: (e: Event) => { x.doc_type = (e.target as HTMLSelectElement).value as ExtractedDocument['doc_type']; render(); } },
+        DOC_TYPES.map((t) => h('option', { value: t, selected: t === x.doc_type }, DOC_LABEL[t] ?? t))),
+      h('button', { class: 'link', onclick: () => openPreview(f.id, x.pages[0] ?? 1, f.name) }, `p. ${x.pages.join(', ')}`),
+      x.confidence !== 'high' && h('span', { class: 'badge warn' }, `${x.confidence} confidence`),
+    ),
+    bits.length > 0 && h('div', { class: 'small' }, bits.join(' · ')),
     x.handwritten_notes && h('div', { class: 'small' }, `Handwritten: ${x.handwritten_notes}`),
     x.problems.length > 0 && h('div', { class: 'flag warn' }, x.problems.join('; ')),
-  ];
+  );
 }
 
 function viewFiles(): Child[] {
-  const input = h('input', { type: 'file', multiple: true, accept: '.pdf,application/pdf,image/jpeg,image/png', hidden: true, onchange: (e: Event) => addFiles((e.target as HTMLInputElement).files!) });
-  const drop = h('div', { class: 'drop', onclick: () => input.click() }, 'Drop the signed PDFs here (boarding passes, airfare receipt or tax invoice, hotel receipt and folio), or click to choose.');
+  const input = h('input', { type: 'file', multiple: true, accept: '.pdf,application/pdf', hidden: true, onchange: (e: Event) => addFiles((e.target as HTMLInputElement).files!) });
+  const drop = h('div', { class: 'drop', onclick: () => input.click() },
+    h('strong', {}, 'Drop your signed PDFs here'), h('br'),
+    'One file per claim line, signed in Acrobat with your KKU Digital ID: e.g. airfare receipt + boarding passes, and hotel receipt + folio.');
   drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
   drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); addFiles(e.dataTransfer!.files); });
-  const pending = S.files.filter((f) => !f.extracted).length;
+  const pending = S.files.filter((f) => !f.documents).length;
   return [
-    h('h2', {}, 'Files'),
-    h('p', { class: 'small muted' }, 'Files stay in this browser tab’s memory. They are sent only to the model endpoint in Settings, and uploaded to DPA byte for byte.'),
+    h('h2', {}, 'Signed files'),
     drop,
     input,
-    S.files.length > 0 && h('div', { class: 'row' }, h('button', { class: 'primary', onclick: extractAll, disabled: pending === 0 || S.extracting.size > 0 }, S.extracting.size ? `Reading ${S.extracting.size}…` : `Read ${pending} file${pending === 1 ? '' : 's'}`)),
+    h('p', { class: 'small muted' }, 'Files stay in this panel’s memory. They are sent only to the model endpoint in Settings, and uploaded to DPA exactly as they are, so the signature stays valid.'),
+    S.files.length > 0 && h('div', { class: 'row' }, h('button', { class: 'primary', onclick: extractAll, disabled: pending === 0 || S.extracting.size > 0 }, S.extracting.size ? `Reading ${S.extracting.size}…` : pending ? `Read ${pending} file${pending === 1 ? '' : 's'}` : 'All files read')),
     S.files.map((f) =>
       h('div', { class: 'card' },
-        h('div', { class: 'row spread' },
-          h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: S.mergeSel.has(f.id), onchange: (e: Event) => { (e.target as HTMLInputElement).checked ? S.mergeSel.add(f.id) : S.mergeSel.delete(f.id); render(); } }), h('strong', {}, f.name)),
-          h('button', { class: 'link', onclick: () => removeFile(f) }, 'remove'),
-        ),
+        h('div', { class: 'row spread' }, h('strong', {}, f.name), h('button', { class: 'link', onclick: () => removeFile(f) }, 'remove')),
         h('div', { class: 'row small' }, sigBadge(f), h('span', { class: 'mono muted', title: f.sha256 }, `sha256 ${f.sha256.slice(0, 12)}…`), h('button', { class: 'link', onclick: () => openPreview(f.id, 1, f.name) }, 'view')),
-        f.extracted
-          ? h('div', { class: 'row small' },
-              h('select', { onchange: (e: Event) => { f.extracted!.doc_type = (e.target as HTMLSelectElement).value as any; render(); } }, DOC_TYPES.map((t) => h('option', { value: t, selected: t === f.extracted!.doc_type }, t))),
-              h('span', { class: `badge ${f.extracted.confidence === 'high' ? 'ok' : 'warn'}` }, `${f.extracted.confidence} · ${f.extractionModel ?? ''}`),
-              h('button', { class: 'link', onclick: () => extractOne(f) }, 'read again'),
-            )
+        !f.signature?.signed && h('div', { class: 'flag block' }, 'This file is not signed. Sign it in Acrobat with your KKU Digital ID and add the signed file instead.'),
+        f.documents
+          ? [h('div', { class: 'row spread small muted' }, `${f.documents.length} document${f.documents.length === 1 ? '' : 's'} · ${f.extractionModel ?? ''}`, h('button', { class: 'link', onclick: () => extractOne(f) }, 'read again')),
+             f.documents.map((x) => docRow(f, x))]
           : S.extracting.has(f.id)
             ? h('div', { class: 'muted small' }, 'Reading…')
             : h('button', { class: 'secondary', onclick: () => extractOne(f) }, 'Read'),
         f.extractionError && h('div', { class: 'flag block' }, f.extractionError),
-        summary(f),
       ),
     ),
-    S.files.length > 0 &&
-      h('div', { class: 'card' },
-        h('h3', {}, 'Prepare for signing'),
-        h('p', { class: 'small' }, 'DPA takes one PDF per claim line. Tick the scans for one line (e.g. hotel receipt + folio, or airfare receipt + boarding passes) and merge them into one UNSIGNED PDF. Sign that file in Acrobat with your KKU Digital ID, then drop the signed file here.'),
-        h('button', { class: 'secondary', disabled: S.mergeSel.size < 1, onclick: mergeSelected }, `Merge ${S.mergeSel.size} file(s) and download`),
-      ),
   ];
-}
-
-async function mergeSelected() {
-  const chosen = S.files.filter((f) => S.mergeSel.has(f.id));
-  const signed = chosen.filter((f) => f.signature?.signed);
-  if (signed.length && !confirm(`${signed.map((f) => f.name).join(', ')} ${signed.length > 1 ? 'are' : 'is'} signed. Merging drops the signature, so the merged file must be signed again. Continue?`)) return;
-  const bytes = await mergeForSigning(chosen.map((f) => ({ name: f.name, mime: f.mime, bytes: S.bytes.get(f.id)! })));
-  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }));
-  const a = h('a', { href: url, download: `${S.ctx?.tripNo ?? 'claim'}-evidence-to-sign.pdf` });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 // ---------------- preview ----------------
@@ -339,13 +329,13 @@ document.getElementById('preview-rotate')!.addEventListener('click', () => { pv.
 
 function currentTimes(): PlannedTimes {
   if (S.times) return S.times;
-  const p = proposeTimes(flightLegs(S.files), S.ctx!, S.settings);
+  const p = proposeTimes(flightLegs(docUnits(S.files)), S.ctx!, S.settings);
   return { depart: p.depart, start: p.start, end: p.end, return: p.return };
 }
 
 function timesCard(): Child {
   const t = currentTimes();
-  const basis = proposeTimes(flightLegs(S.files), S.ctx!, S.settings).basis;
+  const basis = proposeTimes(flightLegs(docUnits(S.files)), S.ctx!, S.settings).basis;
   const field = (k: keyof PlannedTimes, label: string, why: string) => {
     let bad = false;
     try { parseBeDateTime(t[k]); } catch { bad = true; }
@@ -384,9 +374,9 @@ function lineCard(l: PlannedLine, p: Plan): Child {
     l.kind !== 'per_diem' && [
       h('label', { class: 'field' }, h('span', {}, 'หมายเหตุ'), h('input', { type: 'text', value: l.note, onchange: (e: Event) => { o.note = (e.target as HTMLInputElement).value; render(); } })),
       h('label', { class: 'field' },
-        h('span', {}, 'Evidence PDF to upload (one signed file)'),
+        h('span', {}, 'Signed file to upload'),
         h('select', { onchange: (e: Event) => { o.evidenceFileId = (e.target as HTMLSelectElement).value || undefined; render(); } },
-          h('option', { value: '' }, l.evidenceFileIds.length > 1 ? `— ${l.evidenceFileIds.length} files: merge and sign first —` : '— as planned —'),
+          h('option', { value: '' }, l.evidenceFileIds.length > 1 ? `— documents are in ${l.evidenceFileIds.length} files; combine them in one PDF, sign it, and add it —` : `— ${S.files.find((f) => f.id === l.evidenceFileIds[0])?.name ?? 'none'} —`),
           pdfs.map((f) => h('option', { value: f.id, selected: o.evidenceFileId === f.id }, `${f.name}${f.signature?.signed ? ' (signed)' : ''}`)),
         ),
       ),

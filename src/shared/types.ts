@@ -60,7 +60,11 @@ export interface SignatureInfo {
   error?: string;
 }
 
-/** A file the user dropped, as held in memory for the session. */
+/**
+ * A signed PDF the user dropped, held in memory for the session. One file is the
+ * evidence for one claim line and may hold several documents (e.g. an airfare
+ * receipt and both boarding passes, or a hotel receipt and its folio).
+ */
 export interface IngestedFile {
   id: string;
   name: string;
@@ -68,9 +72,17 @@ export interface IngestedFile {
   size: number;
   sha256: string;
   signature: SignatureInfo | null;
-  extracted: ExtractedDocument | null;
+  /** Every document found in the file, in page order. null until read. */
+  documents: ExtractedDocument[] | null;
   extractionModel?: string;
   extractionError?: string;
+}
+
+/** One document inside a file. The rules engine works on these. */
+export type DocUnit = Omit<IngestedFile, 'documents'> & { extracted: ExtractedDocument };
+
+export function docUnits(files: IngestedFile[]): DocUnit[] {
+  return files.flatMap(({ documents, ...f }) => (documents ?? []).map((extracted) => ({ ...f, extracted })));
 }
 
 /** Read from the trip form. Dates are CE ISO yyyy-mm-dd. Money in THB. */
