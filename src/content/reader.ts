@@ -9,12 +9,18 @@ function inputNear(label: string, exact = true): string | null {
   try {
     const lab = findLabel(label, { root: document, visibleOnly: false, exact });
     if (!lab) return null;
-    for (const cell of controlCells(lab)) {
+    const cells = controlCells(lab);
+    // Prefer an input anywhere in the row: "1. ค่าเบี้ยเลี้ยง │ จำนวน │ [input] │ บาท".
+    for (const cell of cells) {
       const input = [...cell.querySelectorAll<HTMLInputElement>('input[type=text]')].find((i) => isVisible(i)) ?? null;
       if (input) return input.classList.contains('watermark') ? null : input.value;
-      const text = norm(cell.textContent);
-      if (text) return text;
     }
+    for (const cell of cells) {
+      const text = norm(cell.textContent);
+      if (text && /\d/.test(text)) return text;
+    }
+    const first = cells[0] && norm(cells[0].textContent);
+    if (first) return first;
   } catch {
     /* fall through */
   }
@@ -25,9 +31,13 @@ function moneyNear(label: string, exact = true) {
   return parseMoney(inputNear(label, exact));
 }
 
+/** DPA stores history comments HTML-escaped, sometimes twice. Decode until plain text. */
 const stripHtml = (html: string) => {
-  const d = new DOMParser().parseFromString(html, 'text/html');
-  return norm(d.body.textContent);
+  let t = html;
+  for (let i = 0; i < 3 && /<[a-z/]|&[a-z#0-9]+;/i.test(t); i++) {
+    t = new DOMParser().parseFromString(t, 'text/html').body.textContent ?? '';
+  }
+  return norm(t);
 };
 
 export function readTripContext(): TripContext {

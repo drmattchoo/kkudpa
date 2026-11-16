@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DPA Claim Filler</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <strong>DPA claim filler</strong>
+      <nav id="tabs" role="tablist">
+        <button data-tab="trip" role="tab">1 Trip</button>
+        <button data-tab="files" role="tab">2 Files</button>
+        <button data-tab="review" role="tab">3 Review</button>
+        <button data-tab="fill" role="tab">4 Fill</button>
+        <button data-tab="settings" role="tab" aria-label="Settings">⚙</button>
+      </nav>
+    </header>
+    <main id="app"></main>
+    <dialog id="preview">
+      <form method="dialog" class="preview-head">
+        <span id="preview-title"></span>
+        <span>
+          <button type="button" id="preview-prev" aria-label="Previous page">‹</button>
+          <button type="button" id="preview-next" aria-label="Next page">›</button>
+          <button type="button" id="preview-rotate" aria-label="Rotate">⟳</button>
+          <button value="close" aria-label="Close">✕</button>
+        </span>
+      </form>
+      <p id="preview-quote" class="quote"></p>
+      <div id="preview-body"></div>
+    </dialog>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -111,7 +111,25 @@ export const DENY_BUTTONS = [
   'ส่งเอกสารคำร้อง',
   'ส่งให้ผู้ขอแก้ไขเอกสาร',
   'บันทึกเอกสาร',
+  // Also present on the trip form (seen in the saved copies). None are ours to press.
+  'บันทึกข้อมูล',
+  'ยกเลิกการเดินทาง',
+  'เปลี่ยนแปลง/ยกเลิกการเดินทาง',
+  'ไม่เบิกจ่ายงบประมาณที่ขอ',
+  'ไม่อนุมัติ',
+  'รับรองการส่งเอกสาร',
+  'แก้ไขข้อมูลการเบิกจ่าย',
+  'แก้ไขเอกสาร',
+  'ลบข้อมูลผู้เดินทาง',
+  'ลบไฟล์',
+  'ลบรายการ',
 ] as const;
+
+/**
+ * The only K2 buttons the driver may press. Anything else that looks like a button is
+ * refused, so a new button DPA adds later is refused too.
+ */
+export const ALLOW_BUTTONS = ['เพิ่มรายการขอเบิก', 'ล้างข้อมูล'] as const;
 
 /** Labels that must exist on the trip form before filling (self-test). */
 export const REQUIRED_PANEL_LABELS = [

@@ -59,10 +59,14 @@ h = h.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 
   return guids.get(k);
 });
 
-// 3. Make "hidden" behave as K2's stylesheet does, since the stylesheet is gone.
+// 3. Chrome's "Save page as" turns K2 button hrefs into absolute links back to the form.
+// Live, K2's script cancels those clicks; in a script-free copy they would navigate.
+h = h.replace(/href="https:\/\/dpa\.kku\.ac\.th\/Runtime\/Runtime\/Form\/[^"]*#"/g, 'href="javascript:;"');
+
+// 4. Make "hidden" behave as K2's stylesheet does, since the stylesheet is gone.
 h = h.replace(/<head>/i, '<head><meta charset="utf-8"><style>.hidden{display:none!important}</style>');
 
-// 4. Residual check.
+// 5. Residual check.
 const leftovers = [
   ...h.matchAll(new RegExp(`${TITLES}(?!ทดสอบ)${NAME}`, 'gu')),
 ].map((m) => m[0]).filter((s) => !s.includes('ทดสอบ'));

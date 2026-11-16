@@ -124,8 +124,9 @@ export async function listDropdownOptions(label: string): Promise<string[]> {
     return m && isVisible(m) ? m : null;
   }, 5000, `${label} list`);
   const opts = [...menu.querySelectorAll('ul.drop-menu > li')].map((li) => norm(li.getAttribute('title') ?? li.textContent)).filter(Boolean);
-  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  userClick(document.body);
+  // Close it the way it was opened.
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  if (isVisible(menu)) userClick(opener);
   return opts;
 }
 

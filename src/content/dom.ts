@@ -1,7 +1,7 @@
 // Small DOM helpers for the K2 page. No IDs: K2 element IDs are GUIDs that change
 // between releases (spec §3).
 
-import { DENY_BUTTONS } from '../config/labels';
+import { ALLOW_BUTTONS, DENY_BUTTONS } from '../config/labels';
 
 export const norm = (s: string | null | undefined) =>
   (s ?? '').replace(/ /g, ' ').replace(/\s+/g, ' ').replace(/\s*[:：]\s*$/, '').replace(/(…|\.\.\.)$/, '').trim();
@@ -51,15 +51,26 @@ export async function settle<T>(read: () => T, quiet = 400, timeout = 8_000): Pr
 
 export class DeniedActionError extends Error {}
 
-/** Throws if the element is, or is inside, a control whose text is on the deny list (spec §2 rule 1). */
+const K2_BUTTON = 'a.SourceCode-Forms-Controls-Web-Button, button, input[type=button], input[type=submit], [role=button]';
+
+/**
+ * Throws if the element is, or is inside, a button on the deny list (spec §2 rule 1),
+ * or a K2 button that is not on the allow list. Radios, dropdown items, grid rows and
+ * inputs are not buttons and pass.
+ */
 export function assertNotDenied(el: Element) {
-  const btn = el.closest('a, button, input[type=button], input[type=submit], [role=button]') ?? el;
+  const btn = el.closest('a, button, input[type=button], input[type=submit], [role=button]');
+  if (!btn) return; // not a button or link: radios, grid cells, inputs
   const texts = [btn.textContent, (btn as HTMLInputElement).value, btn.getAttribute('title'), btn.getAttribute('aria-label')].map(norm);
   for (const t of texts) {
     if (!t) continue;
     for (const deny of DENY_BUTTONS) {
       if (t.includes(deny)) throw new DeniedActionError(`Refusing to press "${deny}". The person submits and saves.`);
     }
+  }
+  const k2btn = el.closest(K2_BUTTON);
+  if (k2btn && !(ALLOW_BUTTONS as readonly string[]).includes(norm(k2btn.textContent || (k2btn as HTMLInputElement).value))) {
+    throw new DeniedActionError(`Refusing to press "${norm(k2btn.textContent)}": not on the allow list.`);
   }
 }
 
