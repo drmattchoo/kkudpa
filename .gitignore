@@ -1,0 +1,6 @@
+node_modules/
+dist/
+tests/.build/
+*.zip
+# Real (unsanitised) DPA page saves and real claim documents. Never commit these.
+private/
