@@ -186,14 +186,16 @@ export interface Plan {
 }
 
 export interface Settings {
-  mode: 'direct' | 'proxy';
+  /** The person's own KKU GenAI (IntelSphere) API key */
   apiKey: string;
-  proxyUrl: string;
+  /** Model id on the KKU GenAI gateway */
   model: string;
-  /** Try Haiku first for clean born-digital PDFs, retry on Sonnet if needed */
-  haikuFirst: boolean;
-  effort: 'low' | 'medium' | 'high';
-  refusalFallback: boolean;
+  /** Optional model that re-reads a file when the first is unsure or fails */
+  secondModel: string;
+  /** Send page images (needed for scans). Off = text layer only. */
+  sendImages: boolean;
+  /** Longest side of each page image, in pixels */
+  imageMaxPx: number;
   departOffsetMin: number;
   returnOffsetMin: number;
   /** Default flight time when a boarding pass prints no arrival time */
@@ -205,13 +207,11 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  mode: 'direct',
   apiKey: '',
-  proxyUrl: '',
-  model: 'claude-sonnet-5-5',
-  haikuFirst: false,
-  effort: 'medium',
-  refusalFallback: true,
+  model: 'gemini-3.8-flash',
+  secondModel: '',
+  sendImages: true,
+  imageMaxPx: 1600,
   departOffsetMin: -120,
   returnOffsetMin: 60,
   defaultFlightMin: 75,

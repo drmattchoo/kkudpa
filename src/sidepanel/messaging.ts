@@ -1,4 +1,4 @@
-import type { ContentRequest, ContentResponse, WorkerRequest, WorkerResponse } from '../shared/messages';
+import type { ContentRequest, ContentResponse } from '../shared/messages';
 
 export async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -17,8 +17,4 @@ export async function toContent(msg: ContentRequest): Promise<ContentResponse> {
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
     return chrome.tabs.sendMessage(tab.id, { ...msg, target: 'content' });
   }
-}
-
-export function toWorker(msg: WorkerRequest): Promise<WorkerResponse> {
-  return chrome.runtime.sendMessage({ ...msg, target: 'worker' });
 }

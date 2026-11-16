@@ -1,19 +1,37 @@
 {
   "manifest_version": 3,
   "name": "KKU DPA Travel Claim Filler",
-  "version": "0.1.0",
-  "description": "Reads signed claim documents and fills the reimbursement stage of a KKU Business Travel trip. You review and submit.",
+  "version": "0.2.0",
+  "description": "Reads your signed claim PDFs with KKU GenAI and fills the reimbursement stage of a KKU Business Travel trip. You review and submit.",
   "minimum_chrome_version": "120",
-  "permissions": ["sidePanel", "storage", "activeTab", "scripting"],
-  "host_permissions": ["https://dpa.kku.ac.th/*", "https://api.anthropic.com/*"],
-  "optional_host_permissions": ["https://*/*"],
-  "background": { "service_worker": "background.js", "type": "module" },
-  "side_panel": { "default_path": "index.html" },
-  "action": { "default_title": "KKU DPA claim filler" },
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://dpa.kku.ac.th/*",
+    "https://gen.ai.kku.ac.th/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "index.html"
+  },
+  "action": {
+    "default_title": "KKU DPA claim filler"
+  },
   "content_scripts": [
     {
-      "matches": ["https://dpa.kku.ac.th/Runtime/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://dpa.kku.ac.th/Runtime/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     }

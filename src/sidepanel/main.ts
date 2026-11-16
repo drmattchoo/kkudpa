@@ -13,9 +13,10 @@ import { formatMoney, parseBeDateTime } from '../shared/dates';
 import { checkSignatures } from '../pdf/signature';
 import { bytesToBase64, sha256Hex } from '../pdf/hash';
 import { DOC_TYPES } from '../extraction/schema';
-import { HAIKU, SONNET } from '../extraction/client';
-import { loadSettings, saveSettings, grantProxyAccess } from './settings';
-import { toContent, toWorker } from './messaging';
+import { extract, listModels, KKU_GATEWAY, DEFAULT_MODEL } from '../extraction/client';
+import { pdfToPages } from './pages';
+import { loadSettings, saveSettings } from './settings';
+import { toContent } from './messaging';
 import { renderPage, pageCount, forget } from './preview';
 
 // ---------------- state ----------------
@@ -200,15 +201,17 @@ async function extractOne(f: IngestedFile) {
   S.extracting.add(f.id);
   f.extractionError = undefined;
   render();
-  const r = await toWorker({ type: 'extract', file: { name: f.name, mime: f.mime, base64: bytesToBase64(S.bytes.get(f.id)!) } });
-  S.extracting.delete(f.id);
-  if (r.ok) {
+  try {
+    const pages = await pdfToPages(S.bytes.get(f.id)!, { images: S.settings.sendImages, maxPx: S.settings.imageMaxPx });
+    const r = await extract({ name: f.name, pages }, S.settings);
     f.documents = r.docs;
     f.extractionModel = r.model;
-  } else {
-    f.extractionError = r.error;
+  } catch (e) {
+    f.extractionError = (e as Error).message;
+  } finally {
+    S.extracting.delete(f.id);
+    render();
   }
-  render();
 }
 
 async function extractAll() {
@@ -501,29 +504,46 @@ function viewFill(): Child[] {
 
 // ---------------- settings ----------------
 
+let models: string[] = [];
+let modelsError = '';
+async function refreshModels() {
+  try {
+    models = await listModels();
+    modelsError = '';
+  } catch (e) {
+    modelsError = (e as Error).message;
+  }
+  if (S.tab === 'settings') render();
+}
+
 function viewSettings(): Child[] {
   const s = S.settings;
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => { S.settings = { ...S.settings, [k]: v }; saveSettings(S.settings); render(); };
   const txt = (k: keyof Settings, label: string, type = 'text', help?: string) =>
-    h('label', { class: 'field' }, h('span', {}, label), h('input', { type, value: String(s[k] ?? ''), onchange: (e: Event) => set(k, (type === 'number' ? Number((e.target as HTMLInputElement).value) : (e.target as HTMLInputElement).value) as never) }), help && h('span', { class: 'small muted' }, help));
+    h('label', { class: 'field' }, h('span', {}, label), h('input', { type, value: String(s[k] ?? ''), onchange: (e: Event) => set(k, (type === 'number' ? Number((e.target as HTMLInputElement).value) : (e.target as HTMLInputElement).value.trim()) as never) }), help && h('span', { class: 'small muted' }, help));
+  const ids = [...new Set([...(models.length ? models : [DEFAULT_MODEL]), s.model, ...(s.secondModel ? [s.secondModel] : [])])];
+  const pick = (k: 'model' | 'secondModel', withNone: boolean) =>
+    h('select', { onchange: (e: Event) => set(k, (e.target as HTMLSelectElement).value) },
+      withNone && h('option', { value: '', selected: !s[k] }, '— none —'),
+      ids.map((m) => h('option', { value: m, selected: s[k] === m }, m)));
   return [
     h('h2', {}, 'Settings'),
     h('div', { class: 'card' },
-      h('h3', {}, 'Model access'),
-      h('label', { class: 'row' }, h('input', { type: 'radio', name: 'm', checked: s.mode === 'proxy', onchange: () => set('mode', 'proxy') }), 'KKU proxy (recommended when the department shares a key)'),
-      h('label', { class: 'row' }, h('input', { type: 'radio', name: 'm', checked: s.mode === 'direct', onchange: () => set('mode', 'direct') }), 'My own Anthropic API key'),
-      s.mode === 'proxy'
-        ? [txt('proxyUrl', 'Proxy URL', 'url', 'e.g. https://claim-proxy.example.kku.ac.th'),
-           h('button', { class: 'secondary', onclick: async () => { try { alert((await grantProxyAccess(s.proxyUrl)) ? 'Access granted.' : 'Access not granted.'); } catch (e) { alert((e as Error).message); } } }, 'Allow access to the proxy')]
-        : [txt('apiKey', 'API key', 'password'), h('div', { class: 'flag warn' }, 'The key is stored in this browser profile (chrome.storage.local, not synced). Anyone with access to this profile can read it.')],
-      h('p', { class: 'small muted' }, 'Receipts and boarding passes contain personal data. Check the faculty has approved sending them to an outside API (PDPA).'),
+      h('h3', {}, 'KKU GenAI (IntelSphere)'),
+      h('p', { class: 'small muted' }, `Gateway: ${KKU_GATEWAY}`),
+      txt('apiKey', 'Your API key', 'password', 'Each person uses their own key from KKU GenAI. Usage counts against your daily quota.'),
+      h('div', { class: 'flag warn' }, 'The key is stored in this browser profile only (not synced). Anyone with access to this profile can read it.'),
     ),
     h('div', { class: 'card' },
       h('h3', {}, 'Reading'),
-      h('label', { class: 'field' }, h('span', {}, 'Model'), h('select', { onchange: (e: Event) => set('model', (e.target as HTMLSelectElement).value) }, [SONNET, HAIKU].map((m) => h('option', { value: m, selected: s.model === m }, m)))),
-      h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: s.haikuFirst, onchange: (e: Event) => set('haikuFirst', (e.target as HTMLInputElement).checked) }), 'Try Haiku first for PDFs; retry on the model above if unsure'),
-      h('label', { class: 'field' }, h('span', {}, 'Effort'), h('select', { onchange: (e: Event) => set('effort', (e.target as HTMLSelectElement).value as Settings['effort']) }, ['low', 'medium', 'high'].map((m) => h('option', { value: m, selected: s.effort === m }, m)))),
-      h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: s.refusalFallback, onchange: (e: Event) => set('refusalFallback', (e.target as HTMLInputElement).checked) }), 'If Sonnet declines a document, let the API retry on a fallback model'),
+      modelsError && h('div', { class: 'flag warn' }, `${modelsError}. Showing saved models only.`),
+      h('label', { class: 'field' }, h('span', {}, 'Model'), pick('model', false),
+        h('span', { class: 'small muted' }, 'Needs to read images for scanned pages (Gemini, Gemma, Grok). gemini-3.8-flash is the default.')),
+      h('label', { class: 'field' }, h('span', {}, 'Second opinion (optional)'), pick('secondModel', true),
+        h('span', { class: 'small muted' }, 'Re-reads a file when the first model is unsure or fails. KKU Local LLM models (gemma4-…) run on KKU servers.')),
+      h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: s.sendImages, onchange: (e: Event) => set('sendImages', (e.target as HTMLInputElement).checked) }), 'Send page images (needed for scanned pages)'),
+      txt('imageMaxPx', 'Page image size (longest side, px)', 'number', 'Smaller uses fewer tokens; 1600 reads small print on receipts.'),
+      h('p', { class: 'small muted' }, 'Pages go to the KKU gateway, which forwards them to the provider of the model you choose. KKU Local LLM models stay on KKU servers. Check faculty approval for personal data (PDPA).'),
     ),
     h('div', { class: 'card' },
       h('h3', {}, 'Default times'),
@@ -549,5 +569,10 @@ function viewSettings(): Child[] {
 (async () => {
   S.settings = await loadSettings();
   render();
+  refreshModels();
   readTrip();
+  if (!S.settings.apiKey) {
+    S.tab = 'settings';
+    render();
+  }
 })();

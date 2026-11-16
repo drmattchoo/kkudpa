@@ -1,5 +1,5 @@
 // Messages between side panel, service worker and content script.
-import type { ClaimRow, ExtractedDocument, PlannedLine, TripContext } from './types';
+import type { ClaimRow, PlannedLine, TripContext } from './types';
 import type { FillReport, FillStep } from '../content/driver';
 import type { SelfTestItem } from '../content/reader';
 
@@ -24,12 +24,3 @@ export type ContentResponse =
 export type ContentEvent =
   | { type: 'fill-step'; lineId: string; step: FillStep }
   | { type: 'manual-attach-needed'; lineId: string; filename: string };
-
-export type WorkerRequest = {
-  type: 'extract';
-  file: { name: string; mime: 'application/pdf' | 'image/jpeg' | 'image/png'; base64: string };
-};
-
-export type WorkerResponse =
-  | { ok: true; docs: ExtractedDocument[]; model: string; attempts: { model: string; outcome: string }[] }
-  | { ok: false; error: string };

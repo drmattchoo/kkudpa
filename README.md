@@ -2,7 +2,7 @@
 
 A Chrome extension that reads a traveller's signed claim documents (boarding passes, airfare receipt or tax invoice, hotel receipt and folio), works out the claim lines, and fills the reimbursement stage of a trip in the KKU Business Travel system on dpa.kku.ac.th. **You review every line and you save and submit in DPA yourself.**
 
-Built from `DPA_EXTENSION_SPEC.md`, milestones 1–4, plus proxy mode. Status: ready for the live dry run (milestone 5). Save draft and the audit log (milestone 6) are not in this build.
+Built from `DPA_EXTENSION_SPEC.md`, milestones 1–4. Documents are read through the KKU GenAI gateway (KKU IntelSphere, `https://gen.ai.kku.ac.th/api/v1`), with each person's own key. Status: ready for the live dry run (milestone 5). Save draft and the audit log (milestone 6) are not in this build.
 
 ## What it does
 
@@ -23,7 +23,20 @@ Built from `DPA_EXTENSION_SPEC.md`, milestones 1–4, plus proxy mode. Status: r
 - **Uploads the bytes you supplied.** Files are read and rendered, never rewritten. A DOM test checks that the uploaded bytes hash the same as the original.
 - **No duplicates.** A line whose item and amount are already in the claim table is skipped.
 - **Every number has a source:** a document page and quote, a DPA field, a rule, or your edit.
-- **Documents go only to the model endpoint** you set (Anthropic, or the KKU proxy). Nothing is stored on a server; files live in the side panel's memory.
+- **Documents go only to the KKU GenAI gateway**, which forwards them to the provider of the model you pick (KKU Local LLM models stay on KKU servers). The extension sends page images and the text layer; the signed PDF itself is never changed. Nothing is stored on a server by the extension; files live in the side panel's memory.
+
+## Models
+
+The model list comes from the gateway. Which ones work depends on whether they read images:
+
+| Model | Scanned pages (images) | Born-digital PDFs (text layer) | Daily quota |
+|---|---|---|---|
+| `gemini-3.8-flash` (default), `gemini-4-*` | yes | yes | 350,000 tokens (flash) |
+| `gemma4-e4b`, `gemma4-12b`, `gemma4-26b` (KKU Local) | expected yes, untested | yes | 1,000,000 tokens |
+| `grok-4.7` | expected yes, untested | yes | 100,000 tokens |
+| `deepseek-v4.1-flash-maas`, `glm-5.2-maas`, `qwen3.8-27b` | probably not: the extension falls back to text and notes it | yes | 2,000,000 / 100,000 / local |
+
+A 3-page file at 1600 px is roughly a few thousand tokens per read. None of this has been run against the real gateway yet (no key was used in development); the first real read will show which models handle Thai receipts well.
 
 ## Install (development)
 
@@ -34,7 +47,7 @@ npm run build
 
 Then in Chrome go to `chrome://extensions`, turn on Developer mode, choose Load unpacked, and select `dist/`. Pin the extension and click it to open the side panel.
 
-Settings (⚙): choose the KKU proxy (enter its URL, then Allow access) or your own API key. The key is kept in `chrome.storage.local` for this browser profile only.
+Settings (⚙) opens first: paste your own KKU GenAI API key and pick a model (default `gemini-3.8-flash`). The key is kept in `chrome.storage.local` for this browser profile only.
 
 ## Tests
 
@@ -66,13 +79,15 @@ Keep real saves and real receipts in `private/`, which git ignores. **This repos
 
 | Spec | Build | Why |
 |---|---|---|
-| §5.4 forced tool call, temperature 0 | Structured outputs (`output_config.format`) with the same JSON schema | Current models reject forced `tool_choice` (Sonnet 5.5) and non-default `temperature` with a 400. Structured outputs still guarantee one schema-valid object per file. |
-| — | Server-side refusal fallback on Sonnet (setting) | If Sonnet declines a document, the API retries on a fallback model instead of failing. |
+| §5.4 Anthropic API, forced tool call | KKU GenAI gateway (OpenAI chat-completions format), JSON schema reply, stepping down to JSON mode or plain JSON for models that lack it | KKU provides only these models, behind one gateway with personal keys. |
+| §5.4 PDF as a document block | Each page rendered to a JPEG plus its text layer | The gateway takes no PDF uploads. Text-only models (Deepseek, GLM) can still read born-digital PDFs from the text layer; scans need an image model. |
+| §8 Haiku first, retry on Sonnet | Optional second-opinion model that re-reads a file when the first is unsure or fails | Same idea with KKU's models, e.g. gemma4-26b first (stays at KKU), gemini-3.8-flash second. |
+| §5 service worker calls the model | The side panel calls the gateway | Page images are rendered in the side panel, which has a DOM; the gateway allows extension origins (CORS). |
 | §2 rule 1 deny list | Deny list **and** an allow list | The form has more destructive buttons than the spec lists. An allow list also covers buttons DPA adds later. |
 | §7 per diem evidence | No file for per diem | DPA hides หลักฐานค่าใช้จ่าย for per diem; only the four times are needed. |
 | §7.3 times | Work start/end default to the DPA activity dates at 08:30 / 16:30 (settings) | The spec gives defaults for departure and return only. |
 | §4 hotel | Below the cap, rate per night = receipt ÷ nights, rounded to satang | DPA computes nights × rate, so the claim can differ from the receipt by a few satang. The review screen says so when it happens. |
-| §5 permissions | Adds `optional_host_permissions: https://*/*`, used only to ask for the proxy's own origin when you press Allow access | The proxy URL is not known at build time. Nothing is granted until you approve it. |
+| §5 permissions | Host permissions for `dpa.kku.ac.th` and `gen.ai.kku.ac.th` only | The gateway replaces the Anthropic API and the proxy. |
 | §6 one object per file | `{ documents: [...] }` per file, one entry per document with its pages | The person adds only signed files, one per claim line, so one file usually holds a receipt and its boarding passes or folio. The return time needs the inbound boarding pass, which is inside the airfare file. |
 | §6 schema `flight`, `stay` | Nullable objects | A receipt has no stay; a folio has no flight. |
 | §7 Prepare for signing | Removed | You add the signed files only. Signing and combining documents happen in Acrobat before you start. |
@@ -88,13 +103,12 @@ src/pdf/                 signature check, SHA-256
 src/content/             K2 adapter, page reader, fill driver (content script)
 src/background/          service worker: extraction calls
 src/sidepanel/           UI
-proxy/                   reference proxy server
 tests/                   unit and DOM tests, anonymised fixtures
 scripts/                 fixture sanitiser, signed-PDF fixture generator
 ```
 
 ## Open questions (from the spec, still open)
 
-- Faculty approval (PDPA) for sending receipts to an outside API. Proxy mode keeps usage logged under KKU control.
+- Faculty approval (PDPA) for sending receipts through KKU GenAI to outside providers. KKU Local LLM models keep the pages on KKU servers; whether they read Thai receipts well enough needs testing.
 - Whether ODT can open K2 SmartObject REST services for the travel process. That would replace the DOM driver.
 - Whether receipts must be in the unit's name, and whether the เบิกจ่ายเพียง note can go in หมายเหตุ for digital documents. The extension currently fills หมายเหตุ with the note and also asks you to write it on the receipt.
