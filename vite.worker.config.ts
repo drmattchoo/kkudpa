@@ -12,5 +12,7 @@ export default defineConfig({
       formats: ['es'],
       fileName: () => 'background.js',
     },
+    // Service workers cannot use dynamic import(): bundle everything into one file.
+    rollupOptions: { output: { inlineDynamicImports: true } },
   },
 });

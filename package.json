@@ -11,7 +11,8 @@
     "test:unit": "vitest run --project unit",
     "test:dom": "npm run build:driver-test && vitest run --project dom",
     "typecheck": "tsc --noEmit",
-    "fixtures:sanitize": "node scripts/sanitize-dpa-page.mjs"
+    "fixtures:sanitize": "node scripts/sanitize-dpa-page.mjs",
+    "smoke": "npm run build && node scripts/smoke-extension.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.7",

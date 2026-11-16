@@ -15,10 +15,9 @@ Scope agreed with the owner: milestones 1–4 of the spec, plus proxy mode (exte
 - [x] Reference proxy server: `proxy/server.mjs`, `proxy/README.md`
 - [x] README
 
-## Next
-- [ ] `npx tsc --noEmit` on the side panel and `src/rules/overrides.ts` (written but not yet typechecked), fix errors
-- [ ] `npm run test:unit` (includes new `tests/unit/overrides.test.ts`) and `npm run test:dom`
-- [ ] `npm run build`, check `dist/` has manifest.json, index.html, content.js, background.js, pdf.worker.min.mjs
-- [ ] Load `dist/` in Chromium with Playwright as an unpacked extension and screenshot the side panel (smoke test)
-- [ ] Commit and push to `claude/dpa-extension`
-- [ ] Cancel the scheduled resume (trigger trig_01YaKFbAzGzQ4eKdMGksckv2) when finished
+- [x] Typecheck, 63 unit tests and 21 DOM tests passing
+- [x] Build: service worker bundled into one file (no dynamic import in MV3 workers)
+- [x] Smoke test of the built extension in Chromium (`npm run smoke`): content script injected on the DPA URL reads the trip, side panel adds a signed PDF and renders its preview, no console errors
+
+## Next (needs the owner)
+- [ ] Milestone 5: live dry run on a real trip (see README)
