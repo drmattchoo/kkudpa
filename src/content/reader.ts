@@ -111,26 +111,35 @@ export function readClaimTable(): ClaimRow[] {
 export interface SelfTestItem {
   what: string;
   ok: boolean;
+  /** Filling cannot start without it. The others are checked again when used. */
+  required: boolean;
 }
 
-/** Checks every label and grid the driver needs exists before filling (spec §10). */
+/**
+ * Checks the labels and grids the driver needs before filling (spec §10). On the live
+ * form some controls only appear after a traveller row or category is chosen (the
+ * buttons may be hidden, K2 creates the file input lazily), so those count as
+ * present if they exist at all, and the file input is checked when a file is attached.
+ */
 export function selfTest(): SelfTestItem[] {
   const items: SelfTestItem[] = [];
   for (const l of REQUIRED_PANEL_LABELS) {
-    const ok = l === LABELS.btnAddLine || l === LABELS.btnClear ? !!findButton(l) : !!findLabel(l, { root: document, visibleOnly: false });
-    items.push({ what: l, ok });
+    const isButton = l === LABELS.btnAddLine || l === LABELS.btnClear;
+    const ok = isButton ? !!findButton(l, document, false) : !!findLabel(l, { root: document, visibleOnly: false });
+    items.push({ what: l, ok, required: !isButton });
   }
-  items.push({ what: 'Traveller grid', ok: !!findGrid(LABELS.travellerGridHeaders) });
-  items.push({ what: 'Claim table', ok: !!findGrid(LABELS.claimGridHeaders) });
-  items.push({ what: 'Activity dates grid', ok: !!findGrid(LABELS.activityGridHeaders) });
-  let fileInput = false;
+  items.push({ what: 'Traveller grid', ok: !!findGrid(LABELS.travellerGridHeaders), required: true });
+  items.push({ what: 'Claim table', ok: !!findGrid(LABELS.claimGridHeaders), required: true });
+  items.push({ what: 'Activity dates grid', ok: !!findGrid(LABELS.activityGridHeaders), required: false });
+  let fileBox = false;
   try {
-    const w = findControl<HTMLElement>(LABELS.evidence, '.file-wrapper', { root: document, visibleOnly: false, visibleControl: false });
-    const id = w.querySelector('label.file-label')?.getAttribute('for');
-    fileInput = !!(id && document.getElementById(id));
+    findControl<HTMLElement>(LABELS.evidence, '.file-wrapper', { root: document, visibleOnly: false, visibleControl: false });
+    fileBox = true;
   } catch {
     /* not found */
   }
-  items.push({ what: `${LABELS.evidence} file input`, ok: fileInput });
+  items.push({ what: `${LABELS.evidence} attach box`, ok: fileBox, required: false });
   return items;
 }
+
+export const selfTestBlocks = (items: SelfTestItem[]) => items.filter((i) => i.required && !i.ok);

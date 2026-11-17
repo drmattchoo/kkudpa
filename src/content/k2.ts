@@ -184,13 +184,15 @@ export function readMoneyLabel(label: string): number | null {
 
 // ---------- buttons ----------
 
-export function findButton(text: string, root: ParentNode = document): HTMLElement | null {
+export function findButton(text: string, root: ParentNode = document, visibleOnly = true): HTMLElement | null {
   const want = norm(text);
-  return [...root.querySelectorAll<HTMLElement>(BUTTON_SEL)].find((b) => norm(b.textContent) === want && isVisible(b)) ?? null;
+  const all = [...root.querySelectorAll<HTMLElement>(BUTTON_SEL)].filter((b) => norm(b.textContent) === want);
+  return all.find((b) => isVisible(b)) ?? (visibleOnly ? null : all[0] ?? null);
 }
 
-export function clickButton(text: string) {
-  const b = findButton(text);
+export async function clickButton(text: string) {
+  // On the live form a button can appear only after the panel is filled in.
+  const b = await waitFor(() => findButton(text), 8000, `the ${text} button`).catch(() => null);
   if (!b) throw new ControlNotFound(`Button not found: ${text}`);
   assertNotDenied(b);
   userClick(b);
@@ -218,16 +220,20 @@ export function attachedFileName(label: string): string {
  */
 export async function attachFile(label: string, bytes: Uint8Array, filename: string, opts: { autoTimeout?: number; manualTimeout?: number; onManual?: () => void } = {}): Promise<AttachResult> {
   const wrapper = fileWrapper(label);
-  const forId = wrapper.querySelector('label.file-label')?.getAttribute('for');
-  const input = (forId && document.getElementById(forId)) as HTMLInputElement | null;
-  if (!input || input.type !== 'file') throw new ControlNotFound(`No file input behind "${label}"`);
-  const accept = input.accept;
-  if (accept && !accept.split(',').some((a) => filename.toLowerCase().endsWith(a.trim().toLowerCase()))) {
-    throw new Error(`DPA accepts ${accept} only; ${filename} does not match`);
-  }
   const shown = () => attachedFileName(label);
   const before = shown();
   try {
+    // K2 may create the hidden input only once the box is ready; wait briefly for it.
+    const input = await waitFor(() => {
+      const forId = wrapper.querySelector('label.file-label')?.getAttribute('for');
+      const el = forId ? (document.getElementById(forId) as HTMLInputElement | null) : null;
+      // Only the input that belongs to this box: the form has other attach controls.
+      return el?.type === 'file' ? el : (wrapper.querySelector('input[type=file]') as HTMLInputElement | null);
+    }, 5000, `the file input behind ${label}`);
+    const accept = input.accept;
+    if (accept && !accept.split(',').some((a) => filename.toLowerCase().endsWith(a.trim().toLowerCase()))) {
+      throw new Error(`DPA accepts ${accept} only; ${filename} does not match`);
+    }
     const dt = new DataTransfer();
     dt.items.add(new File([bytes as BlobPart], filename, { type: 'application/pdf' }));
     input.files = dt.files;

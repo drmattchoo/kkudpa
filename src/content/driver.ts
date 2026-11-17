@@ -11,7 +11,7 @@ import {
   selectDropdown, selectGridRow, selectRadio, setNumber, setText, typeDateTime, panelRoot,
 } from './k2';
 import { isVisible, settle, waitFor } from './dom';
-import { readClaimTable, selfTest } from './reader';
+import { readClaimTable, selfTest, selfTestBlocks } from './reader';
 import { findExisting } from '../rules/checks';
 
 export interface FillStep {
@@ -54,8 +54,8 @@ export async function fillLine(line: PlannedLine, opts: FillOptions): Promise<Fi
   };
 
   try {
-    const missing = selfTest().filter((i) => !i.ok);
-    if (missing.length) throw new Error(`The page is missing: ${missing.map((m) => m.what).join(', ')}. DPA may have changed.`);
+    const missing = selfTestBlocks(selfTest());
+    if (missing.length) throw new Error(`The page is missing: ${missing.map((m) => m.what).join(', ')}. Open the trip form itself (Open Form), or DPA may have changed.`);
     step('Self-test passed');
 
     const before = readClaimTable();
@@ -147,7 +147,7 @@ export async function fillLine(line: PlannedLine, opts: FillOptions): Promise<Fi
     }
 
     // 9. Add, then verify the new row.
-    clickButton(LABELS.btnAddLine);
+    await clickButton(LABELS.btnAddLine);
     const added = await waitFor(() => {
       const rows = readClaimTable();
       return rows.length > before.length ? rows : null;
@@ -177,8 +177,8 @@ export async function fillLine(line: PlannedLine, opts: FillOptions): Promise<Fi
   }
 }
 
-export function clearPanel() {
-  clickButton(LABELS.btnClear);
+export async function clearPanel() {
+  await clickButton(LABELS.btnClear);
 }
 
 export function panelVisible() {

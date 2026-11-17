@@ -44,6 +44,14 @@ export function buildPlan(input: PlanInput): Plan {
           ? { label: 'return', value: times.return, source: { kind: 'document' as const, fileId: legs.at(-1)!.fileId, fileName: legs.at(-1)!.fileName, page: legs.at(-1)!.evidencePage, quote: proposed.basis.return } }
           : { label: 'return', value: times.return, source: { kind: 'rule' as const, rule: proposed.basis.return } },
       ];
+  // Boarding-pass dates should match DPA's departure and return dates.
+  if (!input.times) {
+    const off: string[] = [];
+    if (proposed.outbound && ctx.departDate && proposed.outbound.date !== ctx.departDate) off.push(`outbound ${proposed.outbound.flightNo} is dated ${proposed.outbound.date}, DPA departure is ${ctx.departDate}`);
+    if (proposed.inbound && ctx.returnDate && proposed.inbound.date !== ctx.returnDate) off.push(`return ${proposed.inbound.flightNo} is dated ${proposed.inbound.date}, DPA return is ${ctx.returnDate}`);
+    if (legs.length === 1) off.push(`only one boarding pass was found (${legs[0]!.flightNo} on ${legs[0]!.date}), so the return time comes from the DPA date`);
+    if (off.length) flags.push({ level: 'warn', rule: RULES.perDiemTimesUnconfirmed.id, message: `Check the times: ${off.join('; ')}.` });
+  }
   if (!input.timesConfirmed) {
     flags.push({ level: 'block', rule: RULES.perDiemTimesUnconfirmed.id, message: proposed.fromFlights || input.times ? RULES.perDiemTimesUnconfirmed.text : RULES.perDiemNoFlights.text });
   }
@@ -61,7 +69,13 @@ export function buildPlan(input: PlanInput): Plan {
   if (rate == null) flags.push({ level: 'block', rule: RULES.missingEntitlement.id, message: `${RULES.missingEntitlement.text} อัตราค่าเบี้ยเลี้ยง not found.` });
   if (depMs != null && retMs != null && retMs > depMs && rate != null) {
     const c = countPerDiemDays(depMs, retMs);
-    if (c.totalMinutes < 1440) flags.push({ level: 'info', rule: RULES.perDiemShortTrip.id, message: RULES.perDiemShortTrip.text, lineId: 'per_diem' });
+    const tripDays = ctx.departDate && ctx.returnDate ? Math.round((Date.parse(ctx.returnDate) - Date.parse(ctx.departDate)) / 86_400_000) : 0;
+    const used = [proposed.outbound && `out ${proposed.outbound.flightNo} on ${proposed.outbound.date}`, proposed.inbound && `back ${proposed.inbound.flightNo} on ${proposed.inbound.date}`].filter(Boolean).join(', ');
+    if (c.days === 0 && tripDays >= 1) {
+      flags.push({ level: 'block', rule: RULES.perDiemDays.id, lineId: 'per_diem', message: `The times give 0 days (${times.depart} → ${times.return}), but DPA has the trip from ${ctx.departDate} to ${ctx.returnDate}. A boarding pass date was probably misread${used ? ` (${used})` : ''}. Correct the times in Review.` });
+    } else if (c.totalMinutes < 1440) {
+      flags.push({ level: 'info', rule: RULES.perDiemShortTrip.id, message: RULES.perDiemShortTrip.text, lineId: 'per_diem' });
+    }
     lines.push({
       id: 'per_diem',
       kind: 'per_diem',

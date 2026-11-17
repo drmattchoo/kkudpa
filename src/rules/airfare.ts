@@ -10,16 +10,32 @@ export interface AirfareSplit {
   itemised: boolean;
 }
 
-// Descriptions that are add-ons even if the reader filed them as "fare" or "other".
-const ADDON_PATTERNS = [
-  /seat/i, /baggage|bag\b|luggage|กระเป๋า|สัมภาระ/i, /insurance|ประกัน/i, /convenience|processing|service fee|booking fee|ค่าธรรมเนียม(?!สนามบิน)/i,
-  /meal|อาหาร/i, /priority|fast ?track|lounge/i, /sport|equipment/i, /change fee|เปลี่ยน/i, /เลือกที่นั่ง|ที่นั่ง/i,
+// Extras that are never claimable, whatever the line also says.
+const ADDON = [
+  /seat|ที่นั่ง/i, /baggage|\bbag\b|luggage|กระเป๋า|สัมภาระ|น้ำหนัก/i, /insurance|ประกัน/i, /meal|อาหาร/i,
+  /priority|fast ?track|lounge/i, /sport|equipment/i, /change fee|เปลี่ยนแปลง|เปลี่ยนเที่ยวบิน/i,
 ];
-const TAX_PATTERNS = [/airport tax|passenger service charge|psc|ภาษีสนามบิน|ค่าธรรมเนียมสนามบิน/i];
+// The ticket itself. Airline receipts often word it "ค่าตั๋วโดยสารและ/หรือค่าธรรมเนียมอื่นๆ"
+// (fare and/or other charges): that is the fare, so naming the fare wins over "fee".
+const FARE = [/fare|ticket|ค่าตั๋ว|ตั๋วโดยสาร|ค่าโดยสาร|ค่าบัตรโดยสาร|fuel|surcharge/i];
+const TAX = [/airport tax|passenger service charge|\bpsc\b|ภาษีสนามบิน|ค่าธรรมเนียมสนามบิน|ค่าบริการผู้โดยสาร/i];
+// Fees that are add-ons when nothing on the line names the fare.
+const FEE = [/convenience|processing|service fee|booking fee|payment fee|transaction fee|ค่าธรรมเนียม/i];
+
+const has = (ps: RegExp[], t: string) => ps.some((p) => p.test(t));
+
+/** Is a receipt line claimable? Exported for tests. */
+export function isClaimableAirfareItem(description: string, category: string): boolean {
+  if (has(TAX, description)) return true;
+  if (has(ADDON, description)) return false;
+  if (has(FARE, description)) return true;
+  if (has(FEE, description)) return false;
+  return category === 'fare' || category === 'airport_tax';
+}
 
 /**
- * Only the fare and airport tax are claimable (spec §4). Uses the reader's
- * categories, and also treats any description that names an add-on as an add-on.
+ * Only the fare and airport tax are claimable (spec §4). The wording on the receipt
+ * decides first; the reader's category is used when the wording says neither.
  */
 export function splitAirfare(doc: ExtractedDocument): AirfareSplit {
   const items = doc.line_items ?? [];
@@ -29,9 +45,7 @@ export function splitAirfare(doc: ExtractedDocument): AirfareSplit {
   const included: AirfareSplit['included'] = [];
   const excluded: AirfareSplit['excluded'] = [];
   for (const it of items) {
-    const looksAddon = ADDON_PATTERNS.some((p) => p.test(it.description)) && !TAX_PATTERNS.some((p) => p.test(it.description));
-    const claimable = (it.category === 'fare' || it.category === 'airport_tax') && !looksAddon;
-    (claimable ? included : excluded).push({ description: it.description, amount: it.amount });
+    (isClaimableAirfareItem(it.description, it.category) ? included : excluded).push({ description: it.description, amount: it.amount });
   }
   return { amount: round2(included.reduce((s, i) => s + i.amount, 0)), included, excluded, itemised: true };
 }

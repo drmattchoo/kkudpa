@@ -36,7 +36,7 @@ export async function handle(msg: ContentRequest): Promise<ContentResponse> {
         await selectRadio(LABELS.category, msg.category);
         return { ok: true, type: 'options', options: await listDropdownOptions(LABELS.item) };
       case 'clear-panel':
-        clearPanel();
+        await clearPanel();
         return { ok: true, type: 'done' };
       case 'fill-line': {
         if (busy) return { ok: false, error: 'Already filling a line' };

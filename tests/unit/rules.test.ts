@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { countPerDiemDays, flightLegs, proposeTimes } from '../../src/rules/perDiem';
 import { hotelCap, planHotel } from '../../src/rules/hotel';
-import { splitAirfare, planAirfare } from '../../src/rules/airfare';
+import { splitAirfare, planAirfare, isClaimableAirfareItem } from '../../src/rules/airfare';
 import { checkBudget, checkBilledTo, checkEvidence, findExisting } from '../../src/rules/checks';
 import { buildPlan, canFill } from '../../src/rules/planner';
 import { parseBeDateTime } from '../../src/shared/dates';
@@ -121,6 +121,24 @@ describe('airfare line items', () => {
       { description: 'ค่าธรรมเนียมสนามบิน', amount: 100, category: 'airport_tax' },
     ] });
     expect(splitAirfare(d).amount).toBe(1100);
+  });
+  it('claims a Thai airline line that names the fare and "other charges" (real receipt wording)', () => {
+    const d = doc({ doc_type: 'airfare_receipt', line_items: [
+      { description: 'ค่าตั๋วโดยสารและ/หรือค่าธรรมเนียมอื่นๆ (TEZT6J) FD5504 CNX-KKC', amount: 1385.38, category: 'addon' },
+      { description: 'ค่าธรรมเนียมการชำระเงิน', amount: 50, category: 'other' },
+      { description: 'น้ำหนักสัมภาระ 20 กก.', amount: 400, category: 'fare' },
+      { description: 'ค่าบริการผู้โดยสารขาออก (ภาษีสนามบิน)', amount: 100, category: 'other' },
+    ] });
+    const s = splitAirfare(d);
+    expect(s.included.map((i) => i.amount)).toEqual([1385.38, 100]);
+    expect(s.excluded.map((i) => i.amount)).toEqual([50, 400]);
+  });
+  it.each([
+    ['Base fare', 'fare', true], ['Fuel surcharge', 'other', true], ['Airport tax', 'other', true],
+    ['Seat selection', 'fare', false], ['Travel insurance', 'fare', false], ['Processing fee', 'fare', false],
+    ['ค่าตั๋วโดยสาร', 'other', true], ['เลือกที่นั่ง', 'fare', false], ['Something unlabelled', 'fare', true], ['Something unlabelled', 'other', false],
+  ])('%s (%s) claimable: %s', (desc, cat, want) => {
+    expect(isClaimableAirfareItem(desc as string, cat as string)).toBe(want);
   });
   it('uses the total and warns when not itemised', () => {
     const d = doc({ doc_type: 'airfare_receipt', total_amount: 2500 });
@@ -283,5 +301,20 @@ describe('one signed file per claim line', () => {
     const fo = file('fo', { ...ibisCombined(), doc_type: 'hotel_folio' });
     const plan = buildPlan({ files: [r, fo], ctx: ctx(), existing: [], settings, timesConfirmed: true });
     expect(plan.flags.some((f) => f.lineId === 'hotel' && f.rule === 'evidence.one-file' && f.level === 'block')).toBe(true);
+  });
+});
+
+describe('per diem sanity', () => {
+  it('blocks 0 days when DPA says the trip spans several days, naming the flights', () => {
+    // Inbound pass misread with the outbound date
+    const files = [file('a', [airfareInvoice(), boardingPass('2026-11-10', 'KKC', 'CNX', '3201', '07:30'), boardingPass('2026-11-10', 'CNX', 'KKC', '5504', '10:20', '11:45')])];
+    const plan = buildPlan({ files, ctx: ctx(), existing: [], settings, timesConfirmed: true });
+    const f = plan.flags.find((x) => x.lineId === 'per_diem' && x.level === 'block');
+    expect(f?.message).toMatch(/0 days[\s\S]*FD5504 on 2026-11-10/);
+  });
+  it('warns when boarding-pass dates differ from DPA dates', () => {
+    const files = [file('a', [airfareInvoice(), boardingPass('2026-11-10', 'KKC', 'CNX', '3201', '17:30'), boardingPass('2026-11-14', 'CNX', 'KKC', '5504', '15:20', '16:45')])];
+    const plan = buildPlan({ files, ctx: ctx(), existing: [], settings });
+    expect(plan.flags.some((x) => x.level === 'warn' && /return FD5504 is dated 2026-11-14/.test(x.message))).toBe(true);
   });
 });

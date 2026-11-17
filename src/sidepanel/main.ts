@@ -117,7 +117,8 @@ async function readTrip() {
 
 function viewTrip(): Child[] {
   const c = S.ctx;
-  const failed = S.selfTest.filter((i) => !i.ok);
+  const failed = S.selfTest.filter((i) => i.required && !i.ok);
+  const notYet = S.selfTest.filter((i) => !i.required && !i.ok);
   return [
     h('div', { class: 'row spread' }, h('h2', {}, 'Trip'), h('button', { class: 'primary', onclick: readTrip, disabled: !!S.busy }, c ? 'Read again' : 'Read trip from this page')),
     S.busy && h('p', { class: 'muted' }, S.busy),
@@ -127,7 +128,7 @@ function viewTrip(): Child[] {
       S.selfTest.length > 0 &&
         (failed.length
           ? h('div', { class: 'flag block' }, `DPA page check failed: ${failed.map((f) => f.what).join(', ')}. DPA may have changed; filling is disabled.`)
-          : h('div', { class: 'flag info' }, `Page check passed (${S.selfTest.length} items).`)),
+          : h('div', { class: 'flag info' }, `Page check passed (${S.selfTest.length - notYet.length}/${S.selfTest.length} items${notYet.length ? `; not found yet, checked again when filling: ${notYet.map((i) => i.what).join(', ')}` : ''}).`)),
       h('div', { class: 'card' },
         h('div', { class: 'row spread' }, h('h3', {}, c.tripNo ?? 'No TRIP number found'), h('span', { class: 'muted' }, c.province ?? '')),
         h('div', { class: 'small' }, c.workLocation, c.purpose && ` · ${c.purpose}`),
@@ -431,7 +432,8 @@ function viewReview(): Child[] {
 // ---------------- 4. Fill ----------------
 
 function lineBlocked(l: PlannedLine, p: Plan): string | null {
-  if (S.selfTest.some((i) => !i.ok)) return 'The DPA page check failed.';
+  const missing = S.selfTest.filter((i) => i.required && !i.ok);
+  if (missing.length) return `The DPA page is missing: ${missing.map((i) => i.what).join(', ')}. Make sure the trip form is open (Open Form) and read the trip again in tab 1.`;
   const b = p.flags.find((f) => f.level === 'block' && (!f.lineId || f.lineId === l.id));
   if (b) return b.message;
   if (!l.confirmed) return 'Tick “I checked this line” in Review.';
