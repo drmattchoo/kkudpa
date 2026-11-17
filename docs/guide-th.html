@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>คู่มือ DPA Claim Filler</title>
+<style>
+  :root { --bg:#fff; --fg:#1d2330; --muted:#5f6878; --line:#dde1e8; --card:#f6f7f9; --accent:#1f5fbf; --warn-bg:#fff4dc; --warn:#8a5300; --ok-bg:#e6f4ea; --ok:#1e6b3a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#15181e; --fg:#e6e8ec; --muted:#9aa3b2; --line:#2c323c; --card:#1d2129; --accent:#7aa7ff; --warn-bg:#34290f; --warn:#ffcc80; --ok-bg:#16301f; --ok:#8fd6a4; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.7 "Sarabun","Noto Sans Thai",system-ui,sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 20px; margin: 32px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .lead { color: var(--muted); margin: 0 0 16px; }
+  ol, ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  code, kbd { font-family: ui-monospace, Menlo, monospace; font-size: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  .box { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+  .warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+  .ok { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .tabs { display:inline-block; background: var(--accent); color:#fff; border-radius: 4px; padding: 0 6px; font-size: 14px; }
+  @media (max-width: 520px) { body { font-size: 15px; } table { font-size: 14px; } }
+</style>
+</head>
+<body>
+<main>
+<h1>DPA Claim Filler</h1>
+<p class="lead">ส่วนขยาย Chrome ช่วยกรอกขั้นตอนเบิกจ่ายค่าเดินทางไปราชการในระบบ KKU Business Travel (dpa.kku.ac.th) จากไฟล์หลักฐานที่ลงนามดิจิทัลแล้ว · เวอร์ชัน 0.2.3</p>
+
+<div class="box ok">
+  <strong>สิ่งที่ผู้ใช้ต้องเตรียมมีอย่างเดียว:</strong> ไฟล์ PDF ที่ลงนามด้วย KKU Digital ID ใน Adobe Acrobat แล้ว <strong>หนึ่งไฟล์ต่อหนึ่งรายการเบิก</strong> เช่น<br>
+  • ไฟล์ค่าโดยสารเครื่องบิน = ใบเสร็จ/ใบกำกับภาษี + บัตรขึ้นเครื่องขาไปและขากลับ<br>
+  • ไฟล์ค่าที่พัก = ใบเสร็จ + folio<br>
+  ค่าเบี้ยเลี้ยงไม่ต้องมีไฟล์ ใช้เวลาเดินทาง 4 ช่วงเท่านั้น
+</div>
+
+<div class="box warn">
+  <strong>ส่วนขยายจะไม่กด</strong> บันทึกเอกสาร หรือ ส่งเอกสารขออนุมัติเบิกจ่าย ให้ ผู้ใช้ตรวจและกดเองเสมอ
+  ส่วนขยายกดได้เฉพาะ <em>เพิ่มรายการขอเบิก</em> และ <em>ล้างข้อมูล</em> เท่านั้น
+</div>
+
+<h2>1. ติดตั้ง (ครั้งแรกครั้งเดียว)</h2>
+<ol>
+  <li>แตกไฟล์ zip ที่ได้รับ แล้วเก็บโฟลเดอร์ <code>extension</code> ไว้ในที่ที่จะไม่ลบ เช่น <code>Documents</code> (Chrome โหลดจากโฟลเดอร์นี้ทุกครั้ง)</li>
+  <li>เปิด Chrome พิมพ์ <code>chrome://extensions</code> ในช่องที่อยู่</li>
+  <li>เปิด <strong>Developer mode</strong> (มุมขวาบน)</li>
+  <li>กด <strong>Load unpacked</strong> แล้วเลือกโฟลเดอร์ <code>extension</code> (ข้างในต้องมีไฟล์ <code>manifest.json</code>)</li>
+  <li>กดไอคอนจิ๊กซอว์บนแถบเครื่องมือ แล้วปักหมุด <strong>KKU DPA Travel Claim Filler</strong></li>
+</ol>
+<p>Chrome อาจเตือนเรื่อง “developer mode extensions” ตอนเปิดโปรแกรม เป็นเรื่องปกติของส่วนขยายที่ติดตั้งแบบนี้ กดปิดได้</p>
+
+<h2>2. ใส่ API key ของตนเอง</h2>
+<ol>
+  <li>ขอ API key ของตนเองจาก KKU GenAI (KKU IntelSphere) ทุกคนใช้ key ของตัวเอง และนับโควตาของตัวเอง</li>
+  <li>กดไอคอนส่วนขยายเพื่อเปิดแผงด้านข้าง ครั้งแรกจะเปิดที่หน้า <span class="tabs">⚙</span></li>
+  <li>วาง key ในช่อง <strong>Your API key</strong> key ถูกเก็บในเบราว์เซอร์นี้เท่านั้น ไม่ซิงก์ไปที่อื่น</li>
+  <li>เลือกโมเดล ค่าเริ่มต้นคือ <code>gemini-3.8-flash</code> ซึ่งอ่านภาพสแกนได้</li>
+</ol>
+
+<h2>3. ใช้งานกับทริปหนึ่งทริป</h2>
+<ol>
+  <li><strong>เปิดทริปใน DPA</strong> หน้าแรก &gt; เอกสารรอดำเนินการ &gt; ทริปที่สถานะ <strong>รอเบิกจ่าย</strong> &gt; ลูกศร &gt; Open Form</li>
+  <li><span class="tabs">1 Trip</span> กด <strong>Read trip from this page</strong> ตรวจว่าขึ้น <em>Page check passed</em> เลขที่ TRIP วันที่ และอัตราเบี้ยเลี้ยง/ค่าห้องพักถูกต้อง</li>
+  <li><span class="tabs">2 Files</span> ลากไฟล์ PDF ที่ลงนามแล้วมาวาง แล้วกด <strong>Read</strong> แต่ละไฟล์ต้องขึ้นป้ายเขียว <em>signed: ชื่อผู้ลงนาม</em> และแสดงเอกสารที่อ่านได้ข้างใน กดเลขหน้าเพื่อเทียบกับต้นฉบับ</li>
+  <li><span class="tabs">3 Review</span>
+    <ul>
+      <li>ตรวจเวลา 4 ช่วง (รูปแบบ พ.ศ. เช่น <code>10-11-2569 15:30</code>) ค่าเริ่มต้นคือ เวลาขึ้นเครื่องขาไป −2 ชั่วโมง และเวลาถึงขากลับ +1 ชั่วโมง แก้ได้ แล้วติ๊ก <em>I confirm these four times</em></li>
+      <li>ตรวจยอดแต่ละรายการ กด <em>Where the numbers come from</em> เพื่อดูว่าตัวเลขมาจากหน้าไหน แล้วติ๊ก <em>I checked this line</em></li>
+      <li>ข้อความสีแดง (Must fix) ต้องแก้ก่อนจึงจะกรอกได้</li>
+    </ul>
+  </li>
+  <li><span class="tabs">4 Fill</span> แนะนำให้ลอง <strong>Dry run</strong> ก่อน ส่วนขยายจะกรอกแผงรายการเบิกใน DPA แล้วเทียบยอดที่ DPA คำนวณกับยอดที่วางแผนไว้ โดย<strong>ไม่</strong>เพิ่มรายการ กด <em>ล้างข้อมูล</em> ใน DPA ก่อนลองรายการถัดไป</li>
+  <li>เมื่อยอดตรงทุกรายการ เลือก <strong>Add lines</strong> แล้วกดทีละรายการ ส่วนขยายจะกด <em>เพิ่มรายการขอเบิก</em> เฉพาะเมื่อยอดของ DPA ตรงกับแผนเท่านั้น</li>
+  <li>ตรวจตารางค่าใช้จ่ายใน DPA ว่าคอลัมน์ SIGNED BY ขึ้นชื่อผู้ลงนาม แล้วกด <strong>บันทึกเอกสาร</strong> และ <strong>ส่งเอกสารขออนุมัติเบิกจ่าย</strong> ด้วยตนเอง</li>
+</ol>
+<p>ถ้า DPA ไม่รับไฟล์อัตโนมัติ แผงด้านข้างจะแจ้งให้คลิกช่อง <em>หลักฐานค่าใช้จ่าย</em> ที่ถูกไฮไลต์ใน DPA แล้วเลือกไฟล์เดียวกันเอง ส่วนขยายจะรอ</p>
+
+<h2>4. กฎที่ส่วนขยายตรวจให้</h2>
+<table>
+  <tr><th>รายการ</th><th>สิ่งที่กรอก</th><th>สิ่งที่ตรวจ</th></tr>
+  <tr><td>ค่าเบี้ยเลี้ยง</td><td>เวลา 4 ช่วง DPA คำนวณวันเอง</td><td>ครบ 24 ชม. นับ 1 วัน เศษเกิน 12 ชม. นับเพิ่ม 1 วัน และเทียบจำนวนวันกับที่ DPA คำนวณ</td></tr>
+  <tr><td>ค่าที่พัก</td><td>จำนวนคืน × อัตราต่อคืน</td><td>ไม่เกิน จำนวนคืน × อัตราตามสิทธิ ถ้าใบเสร็จเกิน ต้องเขียนในใบเสร็จว่า “เบิกจ่ายเพียง … บาท” ก่อนลงนาม</td></tr>
+  <tr><td>ค่าโดยสารเครื่องบิน</td><td>ค่าตั๋ว + ภาษีสนามบิน</td><td>ไม่รวมค่าเลือกที่นั่ง สัมภาระ ประกัน ค่าธรรมเนียมชำระเงิน และบริการเสริมอื่น</td></tr>
+  <tr><td>ทุกรายการ</td><td></td><td>ไฟล์ต้องลงนามแล้วและไม่ถูกแก้ไขหลังลงนาม ไม่เพิ่มรายการซ้ำกับที่มีใน DPA เทียบยอดรวมกับงบที่ขออนุมัติ</td></tr>
+</table>
+
+<h2>5. ข้อควรรู้</h2>
+<ul>
+  <li><strong>ข้อมูลส่วนบุคคล (PDPA):</strong> หน้าเอกสารถูกส่งไปยัง KKU GenAI ซึ่งส่งต่อให้ผู้ให้บริการของโมเดลที่เลือก โมเดลกลุ่ม KKU Local LLM (<code>gemma4-…</code>) ประมวลผลบนเซิร์ฟเวอร์ของมหาวิทยาลัย</li>
+  <li>ไฟล์ที่ลงนามจะถูกอัปโหลดเข้า DPA <strong>ตามต้นฉบับทุกไบต์</strong> ลายมือชื่อดิจิทัลจึงยังใช้ได้</li>
+  <li>โมเดลอาจอ่านผิดได้ ตรวจทุกตัวเลขในหน้า Review ก่อนกรอกเสมอ</li>
+  <li>ถ้าอ่านไฟล์ไม่สำเร็จ เปิด <em>How it was read</em> ในการ์ดของไฟล์ แล้วส่งภาพหน้าจอให้ผู้ดูแล</li>
+  <li>ส่วนขยายนี้ยังอยู่ระหว่างทดลองใช้ ยังไม่ได้ทดสอบกับหน้า DPA จริงครบทุกขั้นตอน ควรใช้ Dry run ก่อนทุกครั้งในช่วงแรก</li>
+</ul>
+
+<h2>6. อัปเดตเวอร์ชันใหม่</h2>
+<ol>
+  <li>แทนที่ไฟล์ในโฟลเดอร์ <code>extension</code> ด้วยไฟล์จาก zip ใหม่</li>
+  <li>ไปที่ <code>chrome://extensions</code> แล้วกดปุ่มรีโหลด (ลูกศรวน) ที่การ์ดของส่วนขยาย</li>
+</ol>
+</main>
+</body>
+</html>

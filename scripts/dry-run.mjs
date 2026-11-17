@@ -25,40 +25,40 @@ fs.mkdirSync(out, { recursive: true });
 
 // ---- the documents ----
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dryrun-'));
-const airfarePdf = path.join(tmp, 'airfare-TEZT6J-signed.pdf');
+const airfarePdf = path.join(tmp, 'airfare-QZ7K2P-signed.pdf');
 const hotelPdf = path.join(tmp, 'hotel-signed.pdf');
 fs.writeFileSync(airfarePdf, makeSignedPdf([
-  ['TAX INVOICE / RECEIPT', 'Thai AirAsia Co., Ltd.', 'Bill to: Khon Kaen University  Tax ID 0994000165188', 'Booking TEZT6J', 'FD3437 KKC-CNX fare 1,412.36', 'Airport tax KKC 100.00', 'FD5504 CNX-KKC fare 1,385.38', 'Airport tax CNX 100.00', 'Seat selection 150.00', 'Payment fee 50.00', 'Total 3,197.74'],
-  ['BOARDING PASS  FD3437', 'KKC -> CNX  10 NOV 2026', 'Boarding 17:30   Booking TEZT6J'],
-  ['BOARDING PASS  FD5504', 'CNX -> KKC  13 NOV 2026', 'Boarding 15:20   Arrives 17:00   Booking TEZT6J'],
+  ['TAX INVOICE / RECEIPT', 'Thai AirAsia Co., Ltd.', 'Bill to: Khon Kaen University  Tax ID 0000000000000', 'Booking QZ7K2P', 'FD3431 KKC-CNX fare 1,412.36', 'Airport tax KKC 100.00', 'FD3442 CNX-KKC fare 1,385.38', 'Airport tax CNX 100.00', 'Seat selection 150.00', 'Payment fee 50.00', 'Total 3,197.74'],
+  ['BOARDING PASS  FD3431', 'KKC -> CNX  10 NOV 2026', 'Boarding 17:30   Booking QZ7K2P'],
+  ['BOARDING PASS  FD3442', 'CNX -> KKC  13 NOV 2026', 'Boarding 15:20   Arrives 17:00   Booking QZ7K2P'],
 ], { tmp }));
 fs.writeFileSync(hotelPdf, makeSignedPdf([
-  ['RECEIPT', 'Grand Chaiyaphruek Nimman Chiang Mai', 'Bill to: Khon Kaen University', 'Room 3 nights x 1,500.00', 'Total 4,500.00'],
+  ['RECEIPT', 'Test Hotel Chiang Mai', 'Bill to: Khon Kaen University', 'Room 3 nights x 1,500.00', 'Total 4,500.00'],
   ['GUEST FOLIO', 'Arrival 10/11/2026  Departure 13/11/2026', 'Nights: 3   Room 512'],
 ], { tmp }));
 
 const base = { issuer_tax_id: null, billed_to_tax_id: null, receipt_no: null, receipt_date: null, currency: 'THB', total_amount: null, vat_amount: null, line_items: [], passenger_or_guest_name: 'TEST TRAVELLER', flight: null, stay: null, handwritten_notes: null, evidence: [], confidence: 'high', problems: [] };
-const bp = (page, no, from, to, date, boarding, arrival) => ({ ...base, doc_type: 'boarding_pass', pages: [page], issuer_name: 'AirAsia', flight: { carrier: 'FD', flight_no: no, booking_ref: 'TEZT6J', from_iata: from, to_iata: to, date, boarding_time: boarding, departure_time: null, arrival_time: arrival }, evidence: [{ field: 'flight.boarding_time', page, quote: boarding }, { field: 'flight.date', page, quote: date }] });
+const bp = (page, no, from, to, date, boarding, arrival) => ({ ...base, doc_type: 'boarding_pass', pages: [page], issuer_name: 'AirAsia', flight: { carrier: 'FD', flight_no: no, booking_ref: 'QZ7K2P', from_iata: from, to_iata: to, date, boarding_time: boarding, departure_time: null, arrival_time: arrival }, evidence: [{ field: 'flight.boarding_time', page, quote: boarding }, { field: 'flight.date', page, quote: date }] });
 const READINGS = {
-  'airfare-TEZT6J-signed.pdf': [
-    { ...base, doc_type: 'airfare_receipt', pages: [1], issuer_name: 'Thai AirAsia Co., Ltd.', billed_to_name: 'Khon Kaen University', billed_to_tax_id: '0994000165188', receipt_no: 'TEZT6J', receipt_date: '2026-10-20', total_amount: 3197.74,
+  'airfare-QZ7K2P-signed.pdf': [
+    { ...base, doc_type: 'airfare_receipt', pages: [1], issuer_name: 'Thai AirAsia Co., Ltd.', billed_to_name: 'Khon Kaen University', billed_to_tax_id: '0000000000000', receipt_no: 'QZ7K2P', receipt_date: '2026-10-20', total_amount: 3197.74,
       line_items: [
-        { description: 'ค่าตั๋วโดยสารและ/หรือค่าธรรมเนียมอื่นๆ (TEZT6J) FD3437 KKC-CNX', amount: 1412.36, category: 'fare' },
+        { description: 'ค่าตั๋วโดยสารและ/หรือค่าธรรมเนียมอื่นๆ (QZ7K2P) FD3431 KKC-CNX', amount: 1412.36, category: 'fare' },
         { description: 'ค่าบริการผู้โดยสารขาออก (ภาษีสนามบิน) KKC', amount: 100, category: 'airport_tax' },
         // Filed as an add-on by the model, as happened on the real receipt.
-        { description: 'ค่าตั๋วโดยสารและ/หรือค่าธรรมเนียมอื่นๆ (TEZT6J) FD5504 CNX-KKC', amount: 1385.38, category: 'addon' },
+        { description: 'ค่าตั๋วโดยสารและ/หรือค่าธรรมเนียมอื่นๆ (QZ7K2P) FD3442 CNX-KKC', amount: 1385.38, category: 'addon' },
         { description: 'ค่าบริการผู้โดยสารขาออก (ภาษีสนามบิน) CNX', amount: 100, category: 'airport_tax' },
         { description: 'เลือกที่นั่ง', amount: 150, category: 'addon' },
         { description: 'ค่าธรรมเนียมการชำระเงิน', amount: 50, category: 'addon' },
       ],
-      flight: { carrier: 'FD', flight_no: '3437', booking_ref: 'TEZT6J', from_iata: 'KKC', to_iata: 'CNX', date: '2026-11-10', boarding_time: null, departure_time: null, arrival_time: null },
+      flight: { carrier: 'FD', flight_no: '3431', booking_ref: 'QZ7K2P', from_iata: 'KKC', to_iata: 'CNX', date: '2026-11-10', boarding_time: null, departure_time: null, arrival_time: null },
       evidence: [{ field: 'total_amount', page: 1, quote: '3,197.74' }, { field: 'line_items[0].amount', page: 1, quote: '1,412.36' }, { field: 'line_items[2].amount', page: 1, quote: '1,385.38' }] },
-    bp(2, '3437', 'KKC', 'CNX', '2026-11-10', '17:30', null),
-    bp(3, '5504', 'CNX', 'KKC', '2026-11-13', '15:20', '17:00'),
+    bp(2, '3431', 'KKC', 'CNX', '2026-11-10', '17:30', null),
+    bp(3, '3442', 'CNX', 'KKC', '2026-11-13', '15:20', '17:00'),
   ],
   'hotel-signed.pdf': [
-    { ...base, doc_type: 'hotel_receipt', pages: [1], issuer_name: 'Grand Chaiyaphruek Nimman', billed_to_name: 'Khon Kaen University', receipt_no: 'H-0912', receipt_date: '2026-11-13', total_amount: 4500, line_items: [{ description: 'Room 3 nights', amount: 4500, category: 'room' }], evidence: [{ field: 'total_amount', page: 1, quote: '4,500.00' }] },
-    { ...base, doc_type: 'hotel_folio', pages: [2], issuer_name: 'Grand Chaiyaphruek Nimman', stay: { check_in: '2026-11-10', check_out: '2026-11-13', nights: 3, room_no: '512' }, evidence: [{ field: 'stay.nights', page: 2, quote: 'Nights: 3' }] },
+    { ...base, doc_type: 'hotel_receipt', pages: [1], issuer_name: 'Test Hotel Chiang Mai', billed_to_name: 'Khon Kaen University', receipt_no: 'H-0912', receipt_date: '2026-11-13', total_amount: 4500, line_items: [{ description: 'Room 3 nights', amount: 4500, category: 'room' }], evidence: [{ field: 'total_amount', page: 1, quote: '4,500.00' }] },
+    { ...base, doc_type: 'hotel_folio', pages: [2], issuer_name: 'Test Hotel Chiang Mai', stay: { check_in: '2026-11-10', check_out: '2026-11-13', nights: 3, room_no: '512' }, evidence: [{ field: 'stay.nights', page: 2, quote: 'Nights: 3' }] },
   ],
 };
 

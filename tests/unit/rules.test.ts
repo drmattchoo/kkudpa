@@ -124,7 +124,7 @@ describe('airfare line items', () => {
   });
   it('claims a Thai airline line that names the fare and "other charges" (real receipt wording)', () => {
     const d = doc({ doc_type: 'airfare_receipt', line_items: [
-      { description: 'ค่าตั๋วโดยสารและ/หรือค่าธรรมเนียมอื่นๆ (TEZT6J) FD5504 CNX-KKC', amount: 1385.38, category: 'addon' },
+      { description: 'ค่าตั๋วโดยสารและ/หรือค่าธรรมเนียมอื่นๆ (QZ7K2P) FD3442 CNX-KKC', amount: 1385.38, category: 'addon' },
       { description: 'ค่าธรรมเนียมการชำระเงิน', amount: 50, category: 'other' },
       { description: 'น้ำหนักสัมภาระ 20 กก.', amount: 400, category: 'fare' },
       { description: 'ค่าบริการผู้โดยสารขาออก (ภาษีสนามบิน)', amount: 100, category: 'other' },
@@ -307,14 +307,14 @@ describe('one signed file per claim line', () => {
 describe('per diem sanity', () => {
   it('blocks 0 days when DPA says the trip spans several days, naming the flights', () => {
     // Inbound pass misread with the outbound date
-    const files = [file('a', [airfareInvoice(), boardingPass('2026-11-10', 'KKC', 'CNX', '3201', '07:30'), boardingPass('2026-11-10', 'CNX', 'KKC', '5504', '10:20', '11:45')])];
+    const files = [file('a', [airfareInvoice(), boardingPass('2026-11-10', 'KKC', 'CNX', '3201', '07:30'), boardingPass('2026-11-10', 'CNX', 'KKC', '3442', '10:20', '11:45')])];
     const plan = buildPlan({ files, ctx: ctx(), existing: [], settings, timesConfirmed: true });
     const f = plan.flags.find((x) => x.lineId === 'per_diem' && x.level === 'block');
-    expect(f?.message).toMatch(/0 days[\s\S]*FD5504 on 2026-11-10/);
+    expect(f?.message).toMatch(/0 days[\s\S]*FD3442 on 2026-11-10/);
   });
   it('warns when boarding-pass dates differ from DPA dates', () => {
-    const files = [file('a', [airfareInvoice(), boardingPass('2026-11-10', 'KKC', 'CNX', '3201', '17:30'), boardingPass('2026-11-14', 'CNX', 'KKC', '5504', '15:20', '16:45')])];
+    const files = [file('a', [airfareInvoice(), boardingPass('2026-11-10', 'KKC', 'CNX', '3201', '17:30'), boardingPass('2026-11-14', 'CNX', 'KKC', '3442', '15:20', '16:45')])];
     const plan = buildPlan({ files, ctx: ctx(), existing: [], settings });
-    expect(plan.flags.some((x) => x.level === 'warn' && /return FD5504 is dated 2026-11-14/.test(x.message))).toBe(true);
+    expect(plan.flags.some((x) => x.level === 'warn' && /return FD3442 is dated 2026-11-14/.test(x.message))).toBe(true);
   });
 });
