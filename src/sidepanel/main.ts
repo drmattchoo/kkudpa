@@ -127,7 +127,7 @@ function viewTrip(): Child[] {
     c && [
       S.selfTest.length > 0 &&
         (failed.length
-          ? h('div', { class: 'flag block' }, `DPA page check failed: ${failed.map((f) => f.what).join(', ')}. DPA may have changed; filling is disabled.`)
+          ? h('div', { class: 'flag block' }, `DPA page check failed. Not found: ${failed.map((f) => f.what + (f.similar?.length ? ` (similar on the page: ${f.similar.join(' / ')})` : '')).join('; ')}. Make sure the trip form is open (Open Form), then Read again. If it still fails, send this message to the developer.`)
           : h('div', { class: 'flag info' }, `Page check passed (${S.selfTest.length - notYet.length}/${S.selfTest.length} items${notYet.length ? `; not found yet, checked again when filling: ${notYet.map((i) => i.what).join(', ')}` : ''}).`)),
       h('div', { class: 'card' },
         h('div', { class: 'row spread' }, h('h3', {}, c.tripNo ?? 'No TRIP number found'), h('span', { class: 'muted' }, c.province ?? '')),

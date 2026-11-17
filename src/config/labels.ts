@@ -131,7 +131,7 @@ export const DENY_BUTTONS = [
  */
 export const ALLOW_BUTTONS = ['เพิ่มรายการขอเบิก', 'ล้างข้อมูล'] as const;
 
-/** Labels that must exist on the trip form before filling (self-test). */
+/** Labels that must exist on the trip form before anything is selected (self-test). */
 export const REQUIRED_PANEL_LABELS = [
   LABELS.category,
   LABELS.item,
@@ -139,7 +139,16 @@ export const REQUIRED_PANEL_LABELS = [
   LABELS.tStart,
   LABELS.tEnd,
   LABELS.tReturn,
-  LABELS.computedTotal,
   LABELS.btnAddLine,
   LABELS.btnClear,
 ] as const;
+
+/**
+ * Labels DPA shows or names only after a category is chosen (seen live: เป็นเงินจำนวน
+ * was missing before a category was selected). The driver waits for them while filling.
+ */
+export const CATEGORY_LABELS = {
+  per_diem: [LABELS.ratePerDay, LABELS.computedTotal],
+  hotel: [LABELS.nights, LABELS.ratePerNight, LABELS.computedTotal],
+  airfare: [LABELS.amount, LABELS.computedTotal],
+} as const;

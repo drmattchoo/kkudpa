@@ -4,7 +4,7 @@
 // and the caller asked for it. It never saves or submits.
 
 import type { PlannedLine } from '../shared/types';
-import { LABELS, LEAVE_NONE } from '../config/labels';
+import { CATEGORY_LABELS, LABELS, LEAVE_NONE } from '../config/labels';
 import { parseMoney } from '../shared/dates';
 import {
   attachFile, clickButton, findGrid, findLabel, readDataLabels, readDropdown, readInput, readMoneyLabel,
@@ -80,6 +80,11 @@ export async function fillLine(line: PlannedLine, opts: FillOptions): Promise<Fi
     await waitFor(() => findLabel(LABELS.item, { root: panelRoot() ?? document }), 8000, 'รายการที่เบิก');
     await selectDropdown(LABELS.item, line.item);
     step(`รายการ: ${line.item}`);
+
+    // DPA shows the amount fields and เป็นเงินจำนวน for the chosen category only now.
+    for (const l of CATEGORY_LABELS[line.kind]) {
+      await waitFor(() => findLabel(l, { root: panelRoot() ?? document }), 10_000, `the ${l} field to appear`);
+    }
 
     // 4. Leave dropdown stays at ไม่มีการลา.
     const leave = readDropdown(LABELS.leave);

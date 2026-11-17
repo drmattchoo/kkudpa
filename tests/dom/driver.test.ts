@@ -198,3 +198,29 @@ describe('filling a line', () => {
     expect(r.attachMode).toBe('manual');
   });
 });
+
+describe('live form: เป็นเงินจำนวน appears only after a category is chosen', () => {
+  it('page check passes without it, and filling waits for it', async () => {
+    await open('hotel.html');
+    // Make the page look like the live form before any category is chosen.
+    const before = await page.evaluate(() => {
+      const lab = [...document.querySelectorAll('.SourceCode-Forms-Controls-Web-Label')].find((l) => l.textContent!.trim() === 'เป็นเงินจำนวน')!;
+      lab.textContent = '';
+      setTimeout(() => (lab.textContent = 'เป็นเงินจำนวน'), 800); // DPA renders it after the category
+      return (window as any).__kkuDpa.selfTest().filter((i: any) => i.required && !i.ok);
+    });
+    expect(before).toEqual([]);
+    const r = await fill(line({ id: 'airfare:X', kind: 'airfare', category: 'ค่ายานพาหนะ', item: 'ค่าบัตรโดยสารเครื่องบินในประเทศ', amount: 1234.5, evidenceFileIds: ['f'] }), { add: false, evidence: true });
+    expect(r.status, JSON.stringify(r.steps)).toBe('filled');
+  });
+  it('names similar labels when a required one is missing', async () => {
+    await open('hotel.html');
+    const items = await page.evaluate(() => {
+      const lab = [...document.querySelectorAll('.SourceCode-Forms-Controls-Web-Label')].find((l) => l.textContent!.trim() === 'วันเวลาเริ่มปฏิบัติงาน')!;
+      lab.textContent = 'วันเวลาเริ่มต้นปฏิบัติงาน';
+      return (window as any).__kkuDpa.selfTest().filter((i: any) => i.required && !i.ok);
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].similar).toContain('วันเวลาเริ่มต้นปฏิบัติงาน');
+  });
+});

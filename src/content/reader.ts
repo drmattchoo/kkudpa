@@ -113,24 +113,41 @@ export interface SelfTestItem {
   ok: boolean;
   /** Filling cannot start without it. The others are checked again when used. */
   required: boolean;
+  /** For a missing label: labels on the page with similar text */
+  similar?: string[];
+}
+
+/** Labels on the page that share a word with the missing one, to spot a rename. */
+function similarLabels(text: string): string[] {
+  const want = norm(text);
+  const key = want.slice(0, Math.min(4, want.length));
+  const seen = new Set<string>();
+  for (const el of document.querySelectorAll('.SourceCode-Forms-Controls-Web-Label')) {
+    const t = norm(el.textContent);
+    if (t && t !== want && (t.includes(key) || want.includes(t)) && t.length < 60) seen.add(t);
+    if (seen.size >= 5) break;
+  }
+  return [...seen];
 }
 
 /**
  * Checks the labels and grids the driver needs before filling (spec §10). On the live
  * form some controls only appear after a traveller row or category is chosen (the
- * buttons may be hidden, K2 creates the file input lazily), so those count as
- * present if they exist at all, and the file input is checked when a file is attached.
+ * buttons may be hidden, K2 creates the file input lazily, เป็นเงินจำนวน and the amount
+ * fields depend on the category), so those are checked while filling instead.
  */
 export function selfTest(): SelfTestItem[] {
   const items: SelfTestItem[] = [];
   for (const l of REQUIRED_PANEL_LABELS) {
     const isButton = l === LABELS.btnAddLine || l === LABELS.btnClear;
     const ok = isButton ? !!findButton(l, document, false) : !!findLabel(l, { root: document, visibleOnly: false });
-    items.push({ what: l, ok, required: !isButton });
+    items.push({ what: l, ok, required: !isButton, ...(ok || isButton ? {} : { similar: similarLabels(l) }) });
   }
   items.push({ what: 'Traveller grid', ok: !!findGrid(LABELS.travellerGridHeaders), required: true });
   items.push({ what: 'Claim table', ok: !!findGrid(LABELS.claimGridHeaders), required: true });
   items.push({ what: 'Activity dates grid', ok: !!findGrid(LABELS.activityGridHeaders), required: false });
+  const computed = !!findLabel(LABELS.computedTotal, { root: document, visibleOnly: false });
+  items.push({ what: `${LABELS.computedTotal} (appears after choosing a category)`, ok: computed, required: false });
   let fileBox = false;
   try {
     findControl<HTMLElement>(LABELS.evidence, '.file-wrapper', { root: document, visibleOnly: false, visibleControl: false });
