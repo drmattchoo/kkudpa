@@ -1,15 +1,18 @@
 import type { ContentRequest, ContentResponse } from '../shared/messages';
 
-export async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab;
+const DPA = 'https://dpa.kku.ac.th/';
+
+/** The DPA tab to work on: the active tab if it is DPA, else the most recently used DPA tab. */
+export async function dpaTab(): Promise<chrome.tabs.Tab | undefined> {
+  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (active?.url?.startsWith(DPA)) return active;
+  const tabs = await chrome.tabs.query({ url: `${DPA}*` });
+  return tabs.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
 }
 
 export async function toContent(msg: ContentRequest): Promise<ContentResponse> {
-  const tab = await activeTab();
-  if (!tab?.id || !tab.url?.startsWith('https://dpa.kku.ac.th/')) {
-    return { ok: false, error: 'Open the trip in DPA (dpa.kku.ac.th) in this tab first.' };
-  }
+  const tab = await dpaTab();
+  if (!tab?.id) return { ok: false, error: 'Open the trip in DPA (dpa.kku.ac.th) first.' };
   try {
     return await chrome.tabs.sendMessage(tab.id, { ...msg, target: 'content' });
   } catch {

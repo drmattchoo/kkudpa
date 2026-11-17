@@ -55,6 +55,7 @@ Settings (⚙) opens first: paste your own KKU GenAI API key and pick a model (d
 npm run test:unit   # rules, extraction request and validation, signatures
 npm run test:dom    # the content-script bundle against saved DPA pages
 npm run smoke       # build, load dist/ in Chromium, check the content script and side panel
+npm run dry-run -- <outDir> [--empty-claims]   # full dry run of the built extension on a saved trip form, with screenshots
 ```
 
 The DOM tests run the real content script in Chromium against three anonymised saves of the trip form (`tests/fixtures/dpa/`): the vehicle category with the item dropdown open, the hotel category, and the per diem category. A saved page has no K2 scripts, so `tests/dom/k2-sim.js` stands in for K2's behaviour (radio selection, the body-level dropdown list, watermark boxes, computed amounts, the file control, adding a row). Passing these tests means the driver finds and operates the real markup. It does not prove that live K2 accepts the synthetic events; the dry run on a real trip does that. The DOM tests need Playwright with Chromium (`npx playwright install chromium`).
