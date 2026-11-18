@@ -94,24 +94,97 @@ export function readDropdown(label: string): string {
   return norm(box.querySelector('.input-control-m')?.textContent ?? box.textContent);
 }
 
-export async function selectDropdown(label: string, optionText: string) {
-  const box = dropdownBox(label);
-  const want = norm(optionText);
-  if (readDropdown(label) === want) return;
-  if (box.classList.contains('read-only') || box.classList.contains('disabled')) {
+const optionText = (li: Element) => norm(li.getAttribute('title') || li.textContent);
+
+/** The list K2 shows for a dropdown: "<box id>_droplist" at <body> level, else any visible one. */
+function openList(box: HTMLElement): HTMLElement | null {
+  const own = box.id ? document.getElementById(`${box.id}_droplist`) : null;
+  if (own && isVisible(own)) return own;
+  return [...document.querySelectorAll<HTMLElement>('div.drop-menu')].find((m) => isVisible(m) && m.querySelector('ul.drop-menu > li')) ?? null;
+}
+
+/** The hidden native <select> K2 keeps behind a dropdown box. */
+function hiddenSelect(box: HTMLElement): HTMLSelectElement | null {
+  return (box.id && (document.getElementById(`${box.id}_DropDown`) as HTMLSelectElement | null)) || (box.parentElement?.querySelector('select') ?? null);
+}
+
+/** What the page shows for a dropdown, for an error message. */
+export function describeDropdown(label: string): string {
+  try {
+    const box = dropdownBox(label);
+    const own = box.id ? document.getElementById(`${box.id}_droplist`) : null;
+    const lists = [...document.querySelectorAll<HTMLElement>('div.drop-menu')].filter((m) => isVisible(m));
+    const sel = hiddenSelect(box);
+    return [
+      `box shows "${readDropdown(label)}"`,
+      `box class "${box.className}"`,
+      own ? `own list ${isVisible(own) ? 'visible' : 'hidden'} with [${[...own.querySelectorAll('ul.drop-menu > li')].map(optionText).join(' | ')}]` : 'no own list',
+      `${lists.length} visible list(s)${lists.length ? `: [${lists.map((m) => [...m.querySelectorAll('ul.drop-menu > li')].map(optionText).slice(0, 6).join(' | ')).join('] [')}]` : ''}`,
+      sel ? `hidden select options [${[...sel.options].map((o) => norm(o.text)).join(' | ')}]` : 'no hidden select',
+    ].join('; ');
+  } catch (e) {
+    return (e as Error).message;
+  }
+}
+
+/**
+ * Chooses an option in a K2 dropdown. On the live form the items load from the server
+ * after the category is chosen, and K2 may pick a lone item itself, so this waits for
+ * the box to settle first. It then tries each way K2 may open the list (the text, the
+ * "..." button, the box, the keyboard), retrying while items load, and as a last resort
+ * sets K2's hidden <select>. On failure the error says what the page showed.
+ */
+export async function selectDropdown(label: string, optionText_: string, timeout = 20_000) {
+  const want = norm(optionText_);
+  const box = () => dropdownBox(label); // K2 may re-render the box: look it up each time
+  const done = () => readDropdown(label) === want;
+  if (await settle(() => readDropdown(label), 600, 4000) === want) return;
+  if (box().classList.contains('read-only') || box().classList.contains('disabled')) {
     throw new ControlNotFound(`Dropdown "${label}" is read-only and shows "${readDropdown(label)}", not "${want}"`);
   }
-  const opener = box.querySelector<HTMLElement>('a.input-control') ?? box.querySelector<HTMLElement>('.input-control-buttons a') ?? box;
-  userClick(opener);
-  // K2 renders the list at <body> level with id "<box id>_droplist".
-  const item = await waitFor(() => {
-    const menu = (box.id && document.getElementById(`${box.id}_droplist`)) || null;
-    const scope: ParentNode = menu && isVisible(menu) ? menu : document;
-    const lis = [...scope.querySelectorAll<HTMLElement>('ul.drop-menu > li')].filter(isVisible);
-    return lis.find((li) => norm(li.getAttribute('title') ?? li.textContent) === want);
-  }, 8000, `option "${want}" in ${label}`);
-  userClick(item.querySelector('a') ?? item);
-  await waitFor(() => readDropdown(label) === want, 8000, `${label} to show "${want}"`);
+  const openers: ((b: HTMLElement) => void)[] = [
+    (b) => { const t = b.querySelector<HTMLElement>('a.input-control'); if (t) userClick(t); },
+    (b) => { const t = b.querySelector<HTMLElement>('.input-control-buttons a, a.dropdown'); if (t) userClick(t); },
+    (b) => userClick(b.querySelector<HTMLElement>('.input-control-body') ?? b),
+    (b) => {
+      const t = b.querySelector<HTMLElement>('a.input-control') ?? b;
+      t.focus();
+      for (const key of ['ArrowDown', 'Enter', ' ']) {
+        t.dispatchEvent(new KeyboardEvent('keydown', { key, code: key === ' ' ? 'Space' : key, bubbles: true }));
+        t.dispatchEvent(new KeyboardEvent('keyup', { key, code: key === ' ' ? 'Space' : key, bubbles: true }));
+      }
+    },
+  ];
+  const end = Date.now() + timeout;
+  let round = 0;
+  while (Date.now() < end) {
+    const b = box();
+    if (!openList(b)) openers[round % openers.length]!(b);
+    round++;
+    // Wait up to ~2.5 s for this attempt: the list to open and the item to load.
+    const item = await waitFor(() => {
+      const list = openList(box());
+      return list ? [...list.querySelectorAll<HTMLElement>('ul.drop-menu > li')].find((li) => optionText(li) === want && isVisible(li)) : null;
+    }, 2500, 'option', 100).catch(() => null);
+    if (item) {
+      userClick(item.querySelector('a') ?? item);
+      await waitFor(done, 5000, `${label} to show "${want}"`).catch(() => {});
+      if (done()) return;
+    }
+    if (done()) return; // K2 filled it in while we waited
+  }
+  // Last resort: the native <select> behind the box.
+  const sel = hiddenSelect(box());
+  const opt = sel ? [...sel.options].find((o) => norm(o.text) === want) : undefined;
+  if (sel && opt) {
+    sel.value = opt.value;
+    opt.selected = true;
+    sel.dispatchEvent(new Event('input', { bubbles: true }));
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(done, 3000, `${label} to show "${want}"`).catch(() => {});
+    if (done()) return;
+  }
+  throw new ControlNotFound(`Could not choose "${want}" in ${label}. The page showed: ${describeDropdown(label)}`);
 }
 
 /** Options currently listed for a dropdown (opens and closes it). For discovery and self-test. */
@@ -123,7 +196,7 @@ export async function listDropdownOptions(label: string): Promise<string[]> {
     const m = document.getElementById(`${box.id}_droplist`);
     return m && isVisible(m) ? m : null;
   }, 5000, `${label} list`);
-  const opts = [...menu.querySelectorAll('ul.drop-menu > li')].map((li) => norm(li.getAttribute('title') ?? li.textContent)).filter(Boolean);
+  const opts = [...menu.querySelectorAll('ul.drop-menu > li')].map(optionText).filter(Boolean);
   // Close it the way it was opened.
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   if (isVisible(menu)) userClick(opener);

@@ -8,6 +8,11 @@
     clicks: [],
     ignoreFileChange: false,
     computeOffset: 0,
+    // Live-form variations to test against:
+    openOnlyVia: 'any', // 'button': the list opens only from the "..." button
+    listNeverOpens: false, // the list never opens; only the hidden <select> works
+    itemsDelayMs: 0, // items load this long after the category is chosen
+    autoSelect: true, // K2 shows the first item after the category is chosen
     uploaded: null,
     category: null,
   });
@@ -68,13 +73,22 @@
       box.dispatchEvent(new Event('change', { bubbles: true }));
       return;
     }
-    const opener = e.target.closest && e.target.closest('.dropdown-box a');
+    const opener = e.target.closest && e.target.closest(S.openOnlyVia === 'button' ? '.dropdown-box .input-control-buttons a' : '.dropdown-box a');
     if (opener) {
       const box = opener.closest('.dropdown-box');
-      if (box.classList.contains('read-only')) return;
+      if (box.classList.contains('read-only') || S.listNeverOpens) return;
       const menu = dropFor(box);
       if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
     }
+  });
+
+  // The hidden <select> behind the item box drives the box when it changes.
+  document.addEventListener('change', (e) => {
+    const sel = e.target;
+    if (!(sel instanceof HTMLSelectElement) || !sel.id.endsWith('_DropDown')) return;
+    const box = document.getElementById(sel.id.replace(/_DropDown$/, ''));
+    const o = sel.options[sel.selectedIndex];
+    if (box && o) box.querySelector('a.input-control span').textContent = o.text;
   });
 
   // ---- category radios ----
@@ -103,9 +117,17 @@
     S.category = cat;
     const items = ITEMS[cat];
     const menu = dropFor(itemBox);
-    menu.querySelector('ul.drop-menu').innerHTML = items.map((t, i) => `<li data-index="${i}" title="${t}"><a href="javascript:;"><span>${t}</span></a></li>`).join('');
+    const ul = menu.querySelector('ul.drop-menu');
     const span = itemBox.querySelector('a.input-control span');
-    span.textContent = items[0];
+    ul.innerHTML = '';
+    span.textContent = '';
+    const sel = document.getElementById(itemBox.id + '_DropDown');
+    const load = () => {
+      ul.innerHTML = items.map((t, i) => `<li data-index="${i}" title="${t}"><a href="javascript:;"><span>${t}</span></a></li>`).join('');
+      if (sel) sel.innerHTML = items.map((t, i) => `<option value="${i}">${t}</option>`).join('');
+      if (S.autoSelect) span.textContent = items[0];
+    };
+    if (S.itemsDelayMs) setTimeout(load, S.itemsDelayMs); else load();
     const perDiem = cat === 'ค่าเบี้ยเลี้ยง';
     const hotel = cat === 'ค่าที่พัก';
     amountLabel.textContent = perDiem ? 'อัตราต่อวัน' : hotel ? 'อัตราต่อคืน' : 'ระบุจำนวนเงิน';

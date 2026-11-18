@@ -190,7 +190,14 @@ describe('filling a line', () => {
     await page.evaluate(() => {
       const s = (window as any).__sim;
       s.ignoreFileChange = true;
-      setTimeout(() => s.manualAttach('hotel-signed.pdf'), 1500); // the person attaches it
+      // The person attaches the file once the extension highlights the box.
+      const t = setInterval(() => {
+        const w = document.querySelector<HTMLElement>('.file-wrapper[data-kku-outline]');
+        if (w) {
+          clearInterval(t);
+          s.manualAttach('hotel-signed.pdf');
+        }
+      }, 200);
     });
     const l = line({ id: 'hotel', kind: 'hotel', category: 'ค่าที่พัก', item: 'ค่าที่พักเดินทางในประเทศ', nights: 2, ratePerNight: 1500, amount: 3000, evidenceFileIds: ['f'] });
     const r = await fill(l, { add: false, evidence: true, attachAutoTimeout: 500, manualAttachTimeout: 10_000 });
@@ -222,5 +229,47 @@ describe('live form: เป็นเงินจำนวน appears only after 
     });
     expect(items).toHaveLength(1);
     expect(items[0].similar).toContain('วันเวลาเริ่มต้นปฏิบัติงาน');
+  });
+});
+
+describe('live-form dropdown behaviours', () => {
+  const airfare = () => line({ id: 'airfare:X', kind: 'airfare', category: 'ค่ายานพาหนะ', item: 'ค่าบัตรโดยสารเครื่องบินในประเทศ', amount: 1234.5, evidenceFileIds: ['f'] });
+  const withSim = async (cfg: Record<string, unknown>) => {
+    await open('perdiem.html');
+    await page.evaluate((c) => Object.assign((window as any).__sim, c), cfg);
+  };
+  it('opens the list from the "..." button when the text does not open it, and waits for late items', async () => {
+    await withSim({ openOnlyVia: 'button', itemsDelayMs: 1500, autoSelect: false });
+    const r = await fill(airfare(), { add: false, evidence: true });
+    expect(r.status, JSON.stringify(r.steps)).toBe('filled');
+  });
+  it('uses the hidden select when the list never opens', async () => {
+    await withSim({ listNeverOpens: true, autoSelect: false });
+    const r = await page.evaluate(async () => {
+      const k2 = (window as any).__kkuDpa.k2;
+      await k2.selectRadio('หมวดรายการที่เบิก', 'ค่ายานพาหนะ');
+      await k2.selectDropdown('รายการที่เบิก', 'ค่าบัตรโดยสารเครื่องบินในประเทศ', 3000);
+      return k2.readDropdown('รายการที่เบิก');
+    });
+    expect(r).toBe('ค่าบัตรโดยสารเครื่องบินในประเทศ');
+  });
+  it('accepts an item K2 picked by itself', async () => {
+    await withSim({ itemsDelayMs: 800, autoSelect: true });
+    const r = await fill(line({ id: 'hotel', kind: 'hotel', category: 'ค่าที่พัก', item: 'ค่าที่พักเดินทางในประเทศ', nights: 2, ratePerNight: 1500, amount: 3000, evidenceFileIds: ['f'] }), { add: false, evidence: true });
+    expect(r.status, JSON.stringify(r.steps)).toBe('filled');
+  });
+  it('says what the page showed when the item cannot be chosen', async () => {
+    await withSim({ listNeverOpens: true, autoSelect: false });
+    const msg = await page.evaluate(async () => {
+      const k2 = (window as any).__kkuDpa.k2;
+      await k2.selectRadio('หมวดรายการที่เบิก', 'ค่าที่พัก');
+      try {
+        await k2.selectDropdown('รายการที่เบิก', 'ไม่มีรายการนี้', 2000);
+        return 'no error';
+      } catch (e) {
+        return (e as Error).message;
+      }
+    });
+    expect(msg).toMatch(/The page showed: box shows .*hidden select options \[ค่าที่พักเดินทางในประเทศ\]/);
   });
 });
